@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Created on Thu Aug 30 10:36:35 2018
+Created on Wed Sep 12 10:02:49 2018
 
 @author: WILCBM
 """
@@ -12,9 +12,11 @@ import numpy as np
 import plot_tools as plt
 import common as com
 
-stock_data = com.pull_stock_data('AMZN', 'Daily')
+stock_data = com.pull_stock_data('AAPL', '1min')
 
-#plt.plot_stock_activity(stock_data, 'Close', True)
+
+
+#plt.plot_stock_activity(stock_data, 'AAPL 1 Minute Data', True)
 
 #set aside 20% of data as a blind test
 stock_data, blind_test_data = com.modify_for_blind_test(stock_data, 0.2)
@@ -41,11 +43,11 @@ blind_data = (blind_data - mean) / std
 #build and compile the model
 model = keras.Sequential([
         keras.layers.Dense(16, activation=tf.nn.relu, kernel_regularizer=keras.regularizers.l1(0.001)),
-#        keras.layers.Dropout(0.03),
-#        keras.layers.Dense(64, activation=tf.nn.relu, kernel_regularizer=keras.regularizers.l1(0.001)),
-#        keras.layers.Dropout(0.03),
-#        keras.layers.Dense(32, activation=tf.nn.relu, kernel_regularizer=keras.regularizers.l1(0.001)),
-#        keras.layers.Dense(96, activation=tf.nn.relu),
+        #keras.layers.Dropout(0.03),
+        keras.layers.Dense(16, activation=tf.nn.relu),
+        #keras.layers.Dropout(0.03),
+        #keras.layers.Dense(1024, activation=tf.nn.relu),
+        #keras.layers.Dense(96, activation=tf.nn.relu),
         keras.layers.Dense(1)
       ])
     
@@ -57,7 +59,7 @@ model.compile(loss=tf.losses.mean_squared_error,
 
 #fit the training data to the model
 #early_stop = keras.callbacks.EarlyStopping(monitor='val_loss', patience=50)
-EPOCHS = 500
+EPOCHS = 150
 with tf.Session(config=tf.ConfigProto(log_device_placement=True, device_count={'CPU' : 1, 'GPU' : 0})) as sess:
     sess.run(tf.global_variables_initializer())
     history = model.fit(data_train, labels_train, epochs=EPOCHS,
@@ -66,4 +68,4 @@ with tf.Session(config=tf.ConfigProto(log_device_placement=True, device_count={'
     #plot model performance data
     plt.plot_history(history)
     plt.plot_prediction_accuracy_metrics(model, blind_data, blind_labels)
-    predicted = plt.plot_true_versus_predicted_activity(model, blind_data, blind_labels, 'Volume')
+    predicted = plt.plot_true_versus_predicted_activity(model, blind_data, blind_labels, 'Close')
