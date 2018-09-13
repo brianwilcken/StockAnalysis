@@ -12,9 +12,9 @@ import numpy as np
 import plot_tools as plt
 import common as com
 
-stock_data = com.pull_stock_data('AAPL', '1min')
+stock_data = com.pull_stock_data('FB', '1min')
 
-
+#stock_data = com.pull_data_by_interval('1min')
 
 #plt.plot_stock_activity(stock_data, 'AAPL 1 Minute Data', True)
 
@@ -59,7 +59,7 @@ model.compile(loss=tf.losses.mean_squared_error,
 
 #fit the training data to the model
 #early_stop = keras.callbacks.EarlyStopping(monitor='val_loss', patience=50)
-EPOCHS = 150
+EPOCHS = 500
 with tf.Session(config=tf.ConfigProto(log_device_placement=True, device_count={'CPU' : 1, 'GPU' : 0})) as sess:
     sess.run(tf.global_variables_initializer())
     history = model.fit(data_train, labels_train, epochs=EPOCHS,

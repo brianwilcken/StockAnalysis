@@ -35,7 +35,7 @@ public class IndexedStock extends IndexedObject {
 
 	public void initId() {
 		try {
-			id = Hex.encodeHexString(MessageDigest.getInstance("SHA-1").digest(mapper.writeValueAsBytes(symbol + interval + timestamp + open + high + low + close + volume)));
+			id = Hex.encodeHexString(MessageDigest.getInstance("SHA-1").digest(mapper.writeValueAsBytes(symbol + interval + timestamp)));
 		} catch (JsonProcessingException | NoSuchAlgorithmException e) {
 			// TODO Auto-generated catch block
 			e.printStackTrace();
