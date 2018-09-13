@@ -1,8 +1,11 @@
 package solrapi.model;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
+import alphavantageapi.model.StockPullOperation;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 
 @JsonIgnoreProperties(ignoreUnknown = true)
@@ -42,6 +45,18 @@ public class IndexedStocksQueryParams extends IndexedDocumentsQuery {
 		} else {
 			return 0;
 		}
+	}
+
+	public Map<String, StockPullOperation> getStockPullOperations() {
+		Map<String, StockPullOperation> stockPullOperations = new HashMap<>();
+		if (symbols != null && intervals != null) {
+			for (String symbol : symbols) {
+				for (String interval : intervals) {
+					stockPullOperations.put(symbol, new StockPullOperation(interval));
+				}
+			}
+		}
+		return stockPullOperations;
 	}
 	
 	public String[] getSymbols() {

@@ -54,6 +54,18 @@ public class SolrClient {
 		SolrClient solrClient = new SolrClient("http://localhost:8983/solr");
 	}
 
+//	public static void main(String[] args) {
+//		SolrClient solrClient = new SolrClient("http://localhost:8983/solr");
+//		//solrClient.writeTrainingDataToFile("data/analyzed-events.csv", solrClient::getAnalyzedDataQuery, solrClient::formatForClustering, new ClusteringThrottle("", 0));
+//		try {
+//			solrClient.WriteEventDataToFile("data/all-model-training-events.json", "eventState:* AND concepts:*", 10000);
+//			//solrClient.UpdateIndexedEventsFromJsonFile("data/solrData.json");
+//			//solrClient.UpdateIndexedEventsWithAnalyzedEvents("data/doc_clusters.csv");
+//		} catch (SolrServerException e) {
+//			e.printStackTrace();
+//		}
+//	}
+
 	public void ImportStocksFromJsonFile(String filePath) throws SolrServerException {
 		String file = Tools.GetFileString(filePath, "Cp1252");
 		try {
@@ -67,6 +79,62 @@ public class SolrClient {
 		}
 	}
 
+//	public List<AnalyzedNews> CollectAnalyzedEventsFromCSV(String filePath) {
+//		String file = Tools.GetFileString(filePath, "Cp1252");
+//		try {
+//			MappingIterator<AnalyzedNews> eventIter = new CsvMapper().readerWithTypedSchemaFor(AnalyzedNews.class).readValues(file);
+//			List<AnalyzedNews> events = eventIter.readAll();
+//			List<AnalyzedNews> analyzedEvents = events.stream()
+//					.filter(p -> !Strings.isNullOrEmpty(p.category))
+//					.collect(Collectors.toList());
+//
+//			return analyzedEvents;
+//		} catch (IOException e) {
+//			return null;
+//		}
+//	}
+//
+//	public List<IndexedNews> CollectIndexedEventsFromAnalyzedEvents(List<AnalyzedNews> analyzedEvents) throws SolrServerException {
+//		List<String> ids = analyzedEvents.stream()
+//				.map(p -> p.id)
+//				.collect(Collectors.toList());
+//
+//		List<IndexedNews> indexedEvents = new ArrayList<>();
+//
+//		for (int i = 0; i < ids.size(); i++) {
+//			String id = ids.get(i);
+//			indexedEvents.addAll(QueryIndexedDocuments(IndexedNews.class, "id:" + id, 1, 0, null));
+//		}
+//
+//		return indexedEvents;
+//	}
+//
+//	public void UpdateIndexedEventsWithAnalyzedEvents(String filePath) throws SolrServerException {
+//		List<AnalyzedNews> analyzedEvents = CollectAnalyzedEventsFromCSV(filePath);
+//		List<IndexedNews> indexedEvents = CollectIndexedEventsFromAnalyzedEvents(analyzedEvents);
+//
+//		List<IndexedNews> indexReadyEvents = new ArrayList<>();
+//
+//		int totalDocs = analyzedEvents.size();
+//		logger.info("Total documents to process: " + totalDocs);
+//		for (int i = 0; i < totalDocs; i++) {
+//			AnalyzedNews analyzedEvent = analyzedEvents.get(i);
+//			Optional<IndexedNews> maybeEvent = indexedEvents.stream().filter(p -> p.getId().compareTo(analyzedEvent.id) == 0).findFirst();
+//			if (maybeEvent.isPresent()) {
+//				IndexedNews indexedEvent = maybeEvent.get();
+//				indexedEvent.setCategory(analyzedEvent.category);
+//				indexedEvent.setCategorizationState(SolrConstants.Events.CATEGORIZATION_STATE_USER_UPDATED);
+//				indexedEvent.setEventState(SolrConstants.Events.EVENT_STATE_ANALYZED);
+//				indexedEvent.updateLastUpdatedDate();
+//
+//				indexReadyEvents.add(indexedEvent);
+//			}
+//			logger.info("Processed document: #" + (i + 1) + " of " + totalDocs);
+//		}
+//
+//		indexDocuments(indexReadyEvents);
+//	}
+
 	public <T> void indexDocuments(Collection<T> docs) throws SolrServerException {
 		try {
 			if (!docs.isEmpty()) {
@@ -79,6 +147,13 @@ public class SolrClient {
 			}
 		} catch (IOException e) {
 			logger.error(e.getMessage(), e);
+		}
+	}
+
+	public <T> void indexDocument(T doc) throws SolrServerException {
+		if (doc != null) {
+			List<T> docs = new ArrayList<>();
+			indexDocuments(docs);
 		}
 	}
 

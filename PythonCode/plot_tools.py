@@ -37,8 +37,7 @@ def plot_prediction_accuracy_metrics(model, data_test, labels_test):
     plt.xlabel("Prediction Error")
     plt.ylabel("Count")
     
-    [loss, mae] = model.evaluate(data_test, labels_test, verbose=0)
-    print("Testing set Mean Abs Error: {}".format(mae))
+    return error
     
 def plot_stock_activity(data, title=None, flip=False):
     open_data = data['Open'].values
@@ -63,7 +62,7 @@ def plot_stock_activity(data, title=None, flip=False):
     open_plot = ax2.plot(open_data, 'bo', label='Open', markersize=2)
     high_plot = ax2.plot(high_data, 'g_', label='High', markersize=5)
     low_plot = ax2.plot(low_data, 'r_', label='Low', markersize=5)
-    close_plot = ax2.plot(close_data, 'ko', label='Close', markersize=2)
+    close_plot = ax2.plot(close_data, 'k-', label='Close', markersize=2)
     ax2.yaxis.tick_right()
     ax2.yaxis.set_label_position('right')
     ax2.set_ylabel('Price $')

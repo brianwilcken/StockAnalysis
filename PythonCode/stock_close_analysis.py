@@ -5,18 +5,59 @@ Created on Wed Sep 12 10:02:49 2018
 @author: WILCBM
 """
 
+"""
+In order to predict the next closing price it is necessary to estimate the other data columns.
+Using a predictive model to determine the values for the open, high and low columns can be
+useful too provided suitable estimates are supplied for the other columns.
+
+Step 1: generate and train a predictive model to fit data for the close price.
+
+Step 2: provide optimized estimations for the next value over for open, high, low and volume columns.
+
+Step 3: Using the estimates predict the value of the close price using the model from step 1.
+   
+Estimation of future data points is performed using an exponential moving average approach.
+We can optimize the span of the moving average using an iterative approach.  We iterate over
+an appropriate interval of span sizes while forming estimates against known data points.
+By comparing estimated values against the truth we can calculate error for each estimate, and 
+determine a distribution of error points across the estimation range and for a given span.  By
+minimizing the standard deviation of this distribution we can find the best estimation span for a
+given data series.
+
+"""
+
 import tensorflow as tf
-from tensorflow import keras
 from sklearn.model_selection import train_test_split
 import numpy as np
 import plot_tools as plt
 import common as com
+import tf_keras_models as mod
+from tensorflow import keras
 
-stock_data = com.pull_stock_data('FB', '1min')
+symbol = 'SSC'
+interval = 'Daily'
 
-#stock_data = com.pull_data_by_interval('1min')
+com.init_stock_data_update(symbol, interval)
+stock_data = com.pull_stock_data(symbol, interval)
 
-#plt.plot_stock_activity(stock_data, 'AAPL 1 Minute Data', True)
+#plt.plot_stock_activity(stock_data, symbol + ' ' + interval, True)
+
+#The latest quote may represent incomplete data.  This will be used for closing price estimation.
+latest_quote = stock_data.head(1)
+stock_data = stock_data.tail(len(stock_data)-1)
+latest_closing_price = latest_quote['Close'].values[0]
+
+#Produce estimate of the volume data point.
+est_data = com.modify_for_estimation(stock_data)
+volSpan = com.minimize_estimation_error(est_data['Volume'])
+estVol = com.estimate_next_data_point(est_data['Volume'], volSpan).tail(1).values[0]
+
+#TODO: apply volume modifer based on news sentiment analysis
+
+#produce the array of points that will be used to predict the next closing price
+if estVol > latest_quote['Volume'].values[0]:
+    latest_quote['Volume'] = np.mean([estVol, latest_quote['Volume']])
+latest_quote = latest_quote.drop('Close', axis=1).values
 
 #set aside 20% of data as a blind test
 stock_data, blind_test_data = com.modify_for_blind_test(stock_data, 0.2)
@@ -39,33 +80,29 @@ std = data_train.std(axis=0)
 data_train = (data_train - mean) / std
 data_test = (data_test - mean) / std
 blind_data = (blind_data - mean) / std
+latest_quote_norm = (latest_quote - mean) / std
 
 #build and compile the model
-model = keras.Sequential([
-        keras.layers.Dense(16, activation=tf.nn.relu, kernel_regularizer=keras.regularizers.l1(0.001)),
-        #keras.layers.Dropout(0.03),
-        keras.layers.Dense(16, activation=tf.nn.relu),
-        #keras.layers.Dropout(0.03),
-        #keras.layers.Dense(1024, activation=tf.nn.relu),
-        #keras.layers.Dense(96, activation=tf.nn.relu),
-        keras.layers.Dense(1)
-      ])
-    
-optimizer = tf.train.RMSPropOptimizer(0.001)
-
-model.compile(loss=tf.losses.mean_squared_error,
-            optimizer=optimizer,
-            metrics=['mae'])
+if symbol in mod.modelFuncs and interval in mod.modelFuncs[symbol]:
+    model, epochs, early_stop_patience = mod.modelFuncs[symbol][interval]()
+else:
+    model, epochs, early_stop_patience = mod.get_generic_model()
 
 #fit the training data to the model
-#early_stop = keras.callbacks.EarlyStopping(monitor='val_loss', patience=50)
-EPOCHS = 500
+early_stop = keras.callbacks.EarlyStopping(monitor='val_loss', patience=early_stop_patience)
 with tf.Session(config=tf.ConfigProto(log_device_placement=True, device_count={'CPU' : 1, 'GPU' : 0})) as sess:
     sess.run(tf.global_variables_initializer())
-    history = model.fit(data_train, labels_train, epochs=EPOCHS,
-                        validation_data=(data_test, labels_test), verbose=1)
+    history = model.fit(data_train, labels_train, epochs=epochs,
+                        validation_data=(data_test, labels_test), verbose=1, callbacks=[early_stop])
     
     #plot model performance data
     plt.plot_history(history)
-    plt.plot_prediction_accuracy_metrics(model, blind_data, blind_labels)
+    error = plt.plot_prediction_accuracy_metrics(model, blind_data, blind_labels)
     predicted = plt.plot_true_versus_predicted_activity(model, blind_data, blind_labels, 'Close')
+    mae = com.get_model_mean_absolute_error(model, blind_data, blind_labels)
+    
+    mean_error = np.mean(error)
+    predicted_future_closing_price = model.predict(latest_quote_norm)
+    predicted_future_closing_price_corrected = predicted_future_closing_price - mean_error
+    
+    

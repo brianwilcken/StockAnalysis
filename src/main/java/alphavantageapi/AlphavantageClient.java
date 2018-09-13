@@ -1,7 +1,8 @@
 package alphavantageapi;
 
-import alphavantageapi.model.AlphaVantageStockDataResponse;
+import alphavantageapi.model.AlphavantageStockDataResponse;
 import alphavantageapi.model.AlphavantageStockDataQuery;
+import alphavantageapi.model.StockPullOperation;
 import common.Tools;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -31,7 +32,8 @@ public class AlphavantageClient {
         client.solrClient = new SolrClient(client.solrUrl);
 
         try {
-            client.QueryStockData("NNDM", "TIME_SERIES_DAILY", "Daily");
+
+            client.QueryStockData("NNDM", new StockPullOperation("TIME_SERIES_DAILY", "Daily"));
         } catch (SolrServerException e) {
             e.printStackTrace();
         }
@@ -43,19 +45,19 @@ public class AlphavantageClient {
         restTemplate = new RestTemplate(requestFactory);
     }
 
-    public int QueryStockData(String symbol, String function, String interval) throws SolrServerException {
-        logger.info("Now querying Alphavantage for symbol: " + symbol + ", time series: " + function + ", interval: " + interval);
-        AlphavantageStockDataQuery query = new AlphavantageStockDataQuery(function, symbol, interval, apiKey);
+    public int QueryStockData(String symbol, StockPullOperation op) throws SolrServerException {
+        logger.info("Now querying Alphavantage for symbol: " + symbol + ", time series: " + op.getFunction() + ", interval: " + op.getInterval());
+        AlphavantageStockDataQuery query = new AlphavantageStockDataQuery(op.getFunction(), symbol, op.getInterval(), apiKey);
         String url = alphavantageQueryUrl + Tools.GetQueryString(query);
-        ResponseEntity<AlphaVantageStockDataResponse> response = restTemplate.getForEntity(url, AlphaVantageStockDataResponse.class);
+        ResponseEntity<AlphavantageStockDataResponse> response = restTemplate.getForEntity(url, AlphavantageStockDataResponse.class);
 
-        AlphaVantageStockDataResponse respBody = response.getBody();
-        List<IndexedStock> stocks = respBody.ingestJSON(symbol, interval);
+        AlphavantageStockDataResponse respBody = response.getBody();
+        List<IndexedStock> stocks = respBody.ingestJSON(symbol, op.getInterval());
 
         solrClient.indexDocuments(stocks);
         int totalStocks = stocks.size();
 
-        logger.info(totalStocks + " stocks indexed for symbol: " + symbol + ", time series: " + function + ", interval: " + interval);
+        logger.info(totalStocks + " stocks indexed for symbol: " + symbol + ", time series: " + op.getFunction() + ", interval: " + op.getInterval());
         return totalStocks;
     }
 }

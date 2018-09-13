@@ -16,6 +16,14 @@ class PrintDot(keras.callbacks.Callback):
             print('')
         print('.', end='')
 
+def init_stock_data_update(symbol, interval):
+    url = 'http://localhost:8080/stockAnalysis/api/stocks?symbols=' + symbol + '&intervals=' + interval
+    response = requests.get(url)
+    update_details = json.loads(response.content)
+    
+    return update_details
+    
+
 #get the stock data from solr
 def pull_stock_data(symbol, interval):
     url = 'http://localhost:8983/solr/stocks/select?q=symbol:' + symbol + ' AND interval:' + interval + '&rows=1000000&wt=json'
@@ -51,6 +59,17 @@ def extract_labels(data, label):
     data = data.drop(label, axis=1).values
     
     return data, labels
+
+def get_model_mean_absolute_error(model, data_test, labels_test):
+    loss, mae = model.evaluate(data_test, labels_test, verbose=0)
+    
+    return mae
+
+def modify_for_estimation(stock_data):
+    est_data = pd.DataFrame(stock_data.reindex(index=stock_data.index[::-1]).values)
+    est_data.columns=['Close', 'High', 'Low', 'Open', 'Volume']
+    
+    return est_data
 
 def estimate_next_data_point(series, span=5):
     num_points = len(series)

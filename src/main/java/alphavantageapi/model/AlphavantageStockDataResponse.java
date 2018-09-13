@@ -4,7 +4,7 @@ import solrapi.model.IndexedStock;
 
 import java.util.*;
 
-public class AlphaVantageStockDataResponse extends HashMap<String, Object> {
+public class AlphavantageStockDataResponse extends HashMap<String, Object> {
 
     public List<IndexedStock> ingestJSON(String symbol, String interval) {
         String timeSeries = "Time Series (" + interval + ")";

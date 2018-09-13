@@ -13,6 +13,7 @@ import org.springframework.core.io.ClassPathResource;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import webapp.controllers.StocksController;
+import webscraper.WebClient;
 
 import java.io.InputStream;
 import java.util.List;
@@ -63,20 +64,31 @@ public class RefreshStockDataService {
     }
 
 	@Async("processExecutor")
-    public void process(StocksController StocksController) throws Exception {
+    public void refreshStockData(StocksController StocksController) throws Exception {
         try {
             RefreshTimer avRefresher = new RefreshTimer(ALPHAVANTAGE_INTERVAL, this::refreshAlphavantage, StocksController, avAutoRefresh);
-            RefreshTimer wsRefresher = new RefreshTimer(WEB_SCRAPER_INTERVAL, this::refreshWebScraper, StocksController, wsAutoRefresh);
             avRefresher.execute();
-            wsRefresher.execute();
             while(true) {
                 Thread.sleep(BASE_TIMEOUT);
-
                 avRefresher.refresh(BASE_TIMEOUT);
-                wsRefresher.refresh(BASE_TIMEOUT);
             }
         } catch (Exception e) {
             StocksController.refreshStockDataProcessExceptionHandler(e);
+            throw e;
+        }
+    }
+
+    @Async("processExecutor")
+    public void refreshStockNews(StocksController StocksController) throws Exception {
+        try {
+            RefreshTimer wsRefresher = new RefreshTimer(WEB_SCRAPER_INTERVAL, this::refreshWebScraper, StocksController, wsAutoRefresh);
+            wsRefresher.execute();
+            while(true) {
+                Thread.sleep(BASE_TIMEOUT);
+                wsRefresher.refresh(BASE_TIMEOUT);
+            }
+        } catch (Exception e) {
+            StocksController.refreshStockNewsProcessExceptionHandler(e);
             throw e;
         }
     }
@@ -92,7 +104,8 @@ public class RefreshStockDataService {
             List<StockPullOperation> operations = instructions.getOperations();
             for (StockPullOperation operation : operations) {
                 try {
-                    client.QueryStockData(instructions.symbol, operation.getFunction(), operation.getInterval());
+                    client.QueryStockData(instructions.symbol, operation);
+                    Thread.sleep(12000);
                 } catch (SolrServerException e) {
                     logger.fatal(e.getMessage(), e);
                     throw e; //a Solr error warrants termination of the current process
@@ -106,10 +119,16 @@ public class RefreshStockDataService {
 
     }
 
-    private void refreshWebScraper(StocksController stocksService) {
-//        logger.info("Start Scraping!!!");
-//        WebClient client = eventsService.getWebClient();
-//        int totalScraped = client.queryGoogle(WebClient.QUERY_TIMEFRAME_LAST_HOUR, client::processSearchResult);
-//        logger.info("Number of events scraped from the web: " + totalScraped);
+    private void refreshWebScraper(StocksController stocksService) throws Exception {
+        ClassPathResource instructionsFile = new ClassPathResource(Tools.getProperty("alphavantage.stockPullInstructions"));
+        InputStream instructionsStream = instructionsFile.getInputStream();
+        MappingIterator<StockPullInstructions> instructionsIter = new CsvMapper().readerWithTypedSchemaFor(StockPullInstructions.class).readValues(instructionsStream);
+        List<StockPullInstructions> instructionsList = instructionsIter.readAll();
+        for (StockPullInstructions instructions : instructionsList) {
+            logger.info("Start Scraping!!!");
+            WebClient client = stocksService.getWebClient();
+            int totalScraped = client.queryGoogle(instructions.symbol, WebClient.QUERY_TIMEFRAME_LAST_HOUR, client::processSearchResult);
+            logger.info("Number of news articles scraped from the web: " + totalScraped);
+        }
     }
 }
