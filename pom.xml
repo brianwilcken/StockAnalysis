@@ -147,7 +147,7 @@
 				<log.path>C:/log/time-based-logs</log.path>
 				<index.url>http://localhost:8983/solr</index.url>
 				<avAuto>true</avAuto>
-				<wsAuto>false</wsAuto>
+				<wsAuto>true</wsAuto>
 				<avInterval>86400000</avInterval>
 				<wsInterval>20000</wsInterval>
 			</properties>

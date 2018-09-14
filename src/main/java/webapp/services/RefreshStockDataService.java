@@ -127,7 +127,9 @@ public class RefreshStockDataService {
         for (StockPullInstructions instructions : instructionsList) {
             logger.info("Start Scraping!!!");
             WebClient client = stocksService.getWebClient();
-            int totalScraped = client.queryGoogle(instructions.symbol, WebClient.QUERY_TIMEFRAME_LAST_HOUR, client::processSearchResult);
+            client.setSymbol(instructions.symbol);
+            String searchTerm = instructions.exchange + ":" + instructions.symbol;
+            int totalScraped = client.queryGoogle(searchTerm, WebClient.QUERY_TIMEFRAME_LAST_HOUR, client::processSearchResult);
             logger.info("Number of news articles scraped from the web: " + totalScraped);
         }
     }

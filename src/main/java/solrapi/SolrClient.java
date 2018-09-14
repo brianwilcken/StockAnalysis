@@ -153,6 +153,7 @@ public class SolrClient {
 	public <T> void indexDocument(T doc) throws SolrServerException {
 		if (doc != null) {
 			List<T> docs = new ArrayList<>();
+			docs.add(doc);
 			indexDocuments(docs);
 		}
 	}

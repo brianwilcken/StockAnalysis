@@ -74,10 +74,12 @@ public class WebClient {
     public static final String QUERY_TIMEFRAME_ALL_ARCHIVED = "ar:1";
     public static final String QUERY_BLOGS = "nrt:b";
 
+    private String symbol;
+
     public static void main(String[] args) {
         WebClient client = new WebClient();
         //past hour
-        client.queryGoogle("AMZN", QUERY_TIMEFRAME_LAST_HOUR, client::processSearchResult);
+        client.queryGoogle("NASDAQ:AMZN", QUERY_TIMEFRAME_LAST_HOUR, client::processSearchResult);
         //archives
         //client.queryGoogle(QUERY_TIMEFRAME_ALL_ARCHIVED, client::gatherData);
         //client.queryGoogle(QUERY_TIMEFRAME_LAST_HOUR, client::gatherData);
@@ -91,6 +93,10 @@ public class WebClient {
         locationResolver = new LocationResolver();
         solrClient = new SolrClient(Tools.getProperty("solr.url"));
         //categorizer = new EventCategorizer(solrClient);
+    }
+
+    public void setSymbol(String symbol) {
+        this.symbol = symbol;
     }
 
     public int queryGoogle(String searchTerm, String timeFrameSelector, BiConsumer<Document, Element> action) {
@@ -135,8 +141,9 @@ public class WebClient {
     }
 
     public void processSearchResult(Document article, Element result) {
-
         IndexedNews news = IndexedNews.consume(article, result, articleExtractor);
+        news.setSymbol(symbol);
+        news.initId();
 
         if (news != null) {
             //TODO: detect news category and sentiment

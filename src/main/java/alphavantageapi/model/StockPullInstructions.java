@@ -5,8 +5,9 @@ import com.fasterxml.jackson.annotation.JsonPropertyOrder;
 import java.util.ArrayList;
 import java.util.List;
 
-@JsonPropertyOrder({ "symbol", "instructions" })
+@JsonPropertyOrder({ "exchange", "symbol", "instructions" })
 public class StockPullInstructions {
+    public String exchange;
     public String symbol;
     public String instructions;
 

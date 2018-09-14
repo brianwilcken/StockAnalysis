@@ -33,6 +33,8 @@ public class IndexedNews extends IndexedObject  {
 	@Field
 	private String id;
 	@Field
+	private String symbol;
+	@Field
 	private String articleDate;
 	@Field
 	private String title;
@@ -146,7 +148,7 @@ public class IndexedNews extends IndexedObject  {
 			bodySub = body.substring(0, maxChars - 1);
 		}
 
-		String docCatStr = title + " " + bodySub;
+		String docCatStr = symbol + " " + title + " " + bodySub;
 		docCatStr = docCatStr.replace("\r", " ").replace("\n", " ");
 
 		return NLPTools.normalizeText(stemmer, docCatStr);
@@ -182,6 +184,15 @@ public class IndexedNews extends IndexedObject  {
 	public void setId(String id) {
 		this.id = id;
 	}
+
+	public String getSymbol() {
+		return symbol;
+	}
+
+	public void setSymbol(String symbol) {
+		this.symbol = symbol;
+	}
+
 	public String getTitle() {
 		return title;
 	}
