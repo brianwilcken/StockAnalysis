@@ -26,7 +26,7 @@ def init_stock_data_update(symbol, interval):
 
 #get the stock data from solr
 def pull_stock_data(symbol, interval):
-    url = 'http://localhost:8983/solr/stocks/select?q=symbol:' + symbol + ' AND interval:' + interval + '&rows=1000000&wt=json'
+    url = 'http://localhost:8983/solr/stocks/select?q=symbol:' + symbol + ' AND interval:' + interval + '&sort=timestamp%20DESC&rows=1000000&wt=json'
     response = requests.get(url)
     stock_data = json.loads(response.content)
     stock_data = pd.DataFrame([entry for entry in stock_data['response']['docs']])

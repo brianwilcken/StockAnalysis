@@ -19,9 +19,9 @@ import matplotlib.pyplot as plt
 from sklearn.manifold import MDS
 import mpld3
 
-num_clusters = 7
+num_clusters = 100
 
-data = pd.read_csv('event-clustering.csv', sep=',', encoding='utf-8')
+data = pd.read_csv('../data/news-clustering.csv', sep=',', encoding='utf-8')
 
 stopwords = nltk.corpus.stopwords.words('english')
 
@@ -51,7 +51,7 @@ def tokenize_only(text):
 #stem and tokenize as preprocessing for tf-idf vectorize step
 totalvocab_stemmed = []
 totalvocab_tokenized = []
-for summary in data['summary']:
+for summary in data['body']:
     allwords_stemmed = tokenize_and_stem(summary) #for each item in 'synopses', tokenize/stem
     totalvocab_stemmed.extend(allwords_stemmed) #extend the 'totalvocab_stemmed' list
     
@@ -65,7 +65,7 @@ tfidf_vectorizer = TfidfVectorizer(max_df=0.6, max_features=200000,
                                  min_df=0.01, stop_words='english',
                                  use_idf=True, tokenizer=tokenize_and_stem, ngram_range=(1,3))
 
-tfidf_matrix = tfidf_vectorizer.fit_transform(data['summary'])
+tfidf_matrix = tfidf_vectorizer.fit_transform(data['body'])
 
 terms = tfidf_vectorizer.get_feature_names()
 
@@ -80,7 +80,7 @@ km.fit(tfidf_matrix)
 #extract the cluster vector
 clusters = km.labels_.tolist()
 
-#docs = { 'id': list(data['id']), 'title': list(data['title']), 'summary': list(data['summary']), 'cluster': clusters }
+#docs = { 'id': list(data['id']), 'title': list(data['title']), 'body': list(data['body']), 'cluster': clusters }
 #frame = pd.DataFrame(docs, index = [clusters] , columns = ['id', 'title', 'cluster'])
 #frame['cluster'].value_counts()
 
@@ -164,8 +164,8 @@ df = pd.DataFrame(dict(x=xs, y=ys, label=clusters, title=list(data['title'])))
 groups = df.groupby('label')
 
 #form data frame summarizing document clusterization with distance from mean for each document
-doc_cluster_Df = pd.DataFrame(dict(id=list(data['id']), title=list(data['title']), cluster=[cluster_names[i] for i in clusters], distance=list(cluster_groups.loc[:]['mdist'])))
-doc_cluster_Df.to_csv('doc_clusters.csv', sep=',')
+doc_cluster_Df = pd.DataFrame(dict(id=list(data['id']), symbol=list(data['symbol']), title=list(data['title']), cluster=[cluster_names[i] for i in clusters], distance=list(cluster_groups.loc[:]['mdist'])))
+doc_cluster_Df.to_csv('../data/doc_clusters.csv', sep=',')
 
 #define custom css to format the font and to remove the axis labeling
 css = """

@@ -35,6 +35,7 @@ import com.fasterxml.jackson.databind.ObjectWriter;
 import com.google.common.io.Files;
 
 import common.Tools;
+import solrapi.model.IndexedNews;
 import solrapi.model.IndexedStock;
 
 public class SolrClient {
@@ -52,11 +53,7 @@ public class SolrClient {
 
 	public static void main(String[] args) {
 		SolrClient solrClient = new SolrClient("http://localhost:8983/solr");
-	}
-
-//	public static void main(String[] args) {
-//		SolrClient solrClient = new SolrClient("http://localhost:8983/solr");
-//		//solrClient.writeTrainingDataToFile("data/analyzed-events.csv", solrClient::getAnalyzedDataQuery, solrClient::formatForClustering, new ClusteringThrottle("", 0));
+		solrClient.writeTrainingDataToFile("data/news-clustering.csv", solrClient::getNewsClusteringQuery, solrClient::formatForClustering, new ClusteringThrottle("", 0));
 //		try {
 //			solrClient.WriteEventDataToFile("data/all-model-training-events.json", "eventState:* AND concepts:*", 10000);
 //			//solrClient.UpdateIndexedEventsFromJsonFile("data/solrData.json");
@@ -64,7 +61,7 @@ public class SolrClient {
 //		} catch (SolrServerException e) {
 //			e.printStackTrace();
 //		}
-//	}
+	}
 
 	public void ImportStocksFromJsonFile(String filePath) throws SolrServerException {
 		String file = Tools.GetFileString(filePath, "Cp1252");
@@ -264,116 +261,115 @@ public class SolrClient {
 		return typedDocs;
 	}
 
-//	public void writeTrainingDataToFile(String trainingFilePath, Function<SolrQuery, SolrQuery> queryGetter,
-//										Tools.CheckedBiConsumer<IndexedStock, FileOutputStream> consumer, TrainingDataThrottle throttle) {
-//		SolrQuery query = queryGetter.apply(new SolrQuery());
-//		query.setRows(1000000);
-//		appendFilterQueries(query);
-//		try {
-//			File file = new File(trainingFilePath);
-//			file.getParentFile().mkdirs();
-//			FileOutputStream fos = new FileOutputStream(file);
-//			final BlockingQueue<SolrDocument> tmpQueue = new LinkedBlockingQueue<>();
-//			client.queryAndStreamResponse(COLLECTION, query, new CallbackHandler(tmpQueue));
-//			throttle.init(tmpQueue.size());
-//
-//			SolrDocument tmpDoc;
-//			do {
-//				tmpDoc = tmpQueue.take();
-//				if (!(tmpDoc instanceof StopDoc)) {
-//					IndexedStock event = new IndexedStock(tmpDoc);
-//					if (throttle.check(event)) {
-//						consumer.apply(event, fos);
-//						fos.write(System.lineSeparator().getBytes());
-//					}
-//				}
-//			} while (!(tmpDoc instanceof StopDoc));
-//
-//			fos.close();
-//		} catch (Exception e) {
-//			logger.error(e.getMessage(), e);
-//		}
-//	}
+	public void writeTrainingDataToFile(String trainingFilePath, Function<SolrQuery, SolrQuery> queryGetter,
+										Tools.CheckedBiConsumer<IndexedNews, FileOutputStream> consumer, TrainingDataThrottle throttle) {
+		SolrQuery query = queryGetter.apply(new SolrQuery());
+		query.setRows(1000000);
+		try {
+			File file = new File(trainingFilePath);
+			file.getParentFile().mkdirs();
+			FileOutputStream fos = new FileOutputStream(file);
+			final BlockingQueue<SolrDocument> tmpQueue = new LinkedBlockingQueue<>();
+			client.queryAndStreamResponse(COLLECTION, query, new CallbackHandler(tmpQueue));
+			throttle.init(tmpQueue.size());
 
-//	private static abstract class TrainingDataThrottle {
-//
-//		protected String throttleFor;
-//		protected double throttlePercent;
-//
-//		public TrainingDataThrottle(String throttleFor, double throttlePercent) {
-//			this.throttleFor = throttleFor;
-//			this.throttlePercent = throttlePercent;
-//		}
-//
-//		public abstract void init(int numDocs);
-//
-//		public abstract boolean check(IndexedStock event);
-//	}
-//
-//	public static class StockNewsCategorizationThrottle extends TrainingDataThrottle {
-//
-//		private int numDocs;
-//		private int throttleForCount;
-//
-//		public StockNewsCategorizationThrottle(String throttleFor, double throttlePercent) {
-//			super(throttleFor, throttlePercent);
-//		}
-//
-//		@Override
-//		public void init(int numDocs) {
-//			this.numDocs = numDocs;
-//		}
-//
-//		@Override
-//		public boolean check(IndexedStock event) {
-//			if (event.getCategory().compareTo(throttleFor) == 0) {
-//				double currentPercent = (double)throttleForCount / (double)numDocs;
-//				if (currentPercent > throttlePercent) {
-//					return false;
-//				} else {
-//					//randomization such that not always given document is added
-//					//50% likelihood the document is added
-//					double random = Math.random();
-//					if (random > 0.5) {
-//						throttleForCount++;
-//						return true;
-//					}
-//					return false;
-//				}
-//			}
-//			return true;
-//		}
-//	}
-//
-//	public static class ClusteringThrottle extends TrainingDataThrottle {
-//
-//		public ClusteringThrottle(String throttleFor, double throttlePercent) {
-//			super(throttleFor, throttlePercent);
-//		}
-//
-//		@Override
-//		public void init(int numDocs) {
-//
-//		}
-//
-//		@Override
-//		public boolean check(IndexedStock event) {
-//			return true;
-//		}
-//	}
-//
-//	public void formatForEventCategorization(IndexedStock event, FileOutputStream fos) throws IOException {
-//		fos.write(event.GetModelTrainingForm().getBytes(Charset.forName("Cp1252")));
-//	}
-//
-//	public void formatForClustering(IndexedStock event, FileOutputStream fos) throws IOException {
-//		fos.write(event.GetClusteringForm().getBytes(Charset.forName("Cp1252")));
-//	}
-//
-//	public void formatForAnalysis(IndexedStock event, FileOutputStream fos) throws IOException {
-//		fos.write(event.GetAnalysisForm().getBytes(Charset.forName("Cp1252")));
-//	}
-//
+			SolrDocument tmpDoc;
+			do {
+				tmpDoc = tmpQueue.take();
+				if (!(tmpDoc instanceof StopDoc)) {
+					IndexedNews news = new IndexedNews(tmpDoc);
+					if (throttle.check(news)) {
+						consumer.apply(news, fos);
+						fos.write(System.lineSeparator().getBytes());
+					}
+				}
+			} while (!(tmpDoc instanceof StopDoc));
+
+			fos.close();
+		} catch (Exception e) {
+			logger.error(e.getMessage(), e);
+		}
+	}
+
+	private static abstract class TrainingDataThrottle {
+
+		protected String throttleFor;
+		protected double throttlePercent;
+
+		public TrainingDataThrottle(String throttleFor, double throttlePercent) {
+			this.throttleFor = throttleFor;
+			this.throttlePercent = throttlePercent;
+		}
+
+		public abstract void init(int numDocs);
+
+		public abstract boolean check(IndexedNews news);
+	}
+
+	public static class StockNewsCategorizationThrottle extends TrainingDataThrottle {
+
+		private int numDocs;
+		private int throttleForCount;
+
+		public StockNewsCategorizationThrottle(String throttleFor, double throttlePercent) {
+			super(throttleFor, throttlePercent);
+		}
+
+		@Override
+		public void init(int numDocs) {
+			this.numDocs = numDocs;
+		}
+
+		@Override
+		public boolean check(IndexedNews news) {
+			if (news.getCategory().compareTo(throttleFor) == 0) {
+				double currentPercent = (double)throttleForCount / (double)numDocs;
+				if (currentPercent > throttlePercent) {
+					return false;
+				} else {
+					//randomization such that not always given document is added
+					//50% likelihood the document is added
+					double random = Math.random();
+					if (random > 0.5) {
+						throttleForCount++;
+						return true;
+					}
+					return false;
+				}
+			}
+			return true;
+		}
+	}
+
+	public static class ClusteringThrottle extends TrainingDataThrottle {
+
+		public ClusteringThrottle(String throttleFor, double throttlePercent) {
+			super(throttleFor, throttlePercent);
+		}
+
+		@Override
+		public void init(int numDocs) {
+
+		}
+
+		@Override
+		public boolean check(IndexedNews news) {
+			return true;
+		}
+	}
+
+	public void formatForCategorization(IndexedNews news, FileOutputStream fos) throws IOException {
+		fos.write(news.GetDoccatModelTrainingForm().getBytes(Charset.forName("Cp1252")));
+	}
+
+	public void formatForClustering(IndexedNews news, FileOutputStream fos) throws IOException {
+		fos.write(news.GetClusteringForm().getBytes(Charset.forName("Cp1252")));
+	}
+
+	public void formatForAnalysis(IndexedNews news, FileOutputStream fos) throws IOException {
+		fos.write(news.GetAnalysisForm().getBytes(Charset.forName("Cp1252")));
+	}
+
 //	public SolrQuery getDoccatDataQuery(SolrQuery query) {
 //		query.setQuery("eventState:* AND -eventState:" + SolrConstants.Events.EVENT_STATE_NEW);
 //		query.addFilterQuery("category:* AND -category:" + SolrConstants.Events.CATEGORY_UNCATEGORIZED);
@@ -386,13 +382,13 @@ public class SolrClient {
 //
 //		return query;
 //	}
-//
-//	public SolrQuery getAnalyzedDataQuery(SolrQuery query) {
-//		query.setQuery("eventState:" + SolrConstants.Events.EVENT_STATE_ANALYZED);
-//
-//		return query;
-//	}
-//
+
+	public SolrQuery getNewsClusteringQuery(SolrQuery query) {
+		query.setQuery("body:*");
+
+		return query;
+	}
+
 //	public SolrQuery getAnalyzedUncategorizedDataQuery(SolrQuery query) {
 //		query.setQuery("eventState:" + SolrConstants.Events.EVENT_STATE_ANALYZED);
 //		query.addFilterQuery("category:" + SolrConstants.Events.CATEGORY_UNCATEGORIZED);
@@ -412,83 +408,77 @@ public class SolrClient {
 //
 //		return query;
 //	}
-//
-//	private void appendFilterQueries(SolrQuery query) {
-//		query.addFilterQuery("-userCreated:true");
-//		query.addFilterQuery("-feedType:" + SolrConstants.Events.FEED_TYPE_AUTHORITATIVE);
-//		query.addFilterQuery("concepts:*");
-//	}
-//
-//	public void WriteDataToFile(String filePath, String queryStr, int rows, String... filterQueries) throws SolrServerException {
-//		ObjectWriter writer = new ObjectMapper().writer().withDefaultPrettyPrinter();
-//		SolrDocumentList events = QuerySolrDocuments(queryStr, rows, 0, null, filterQueries);
-//		try {
-//			String output = writer.writeValueAsString(events);
-//			File file = new File(filePath);
-//			file.getParentFile().mkdirs();
-//			Files.write(output, file, Charset.forName("Cp1252"));
-//		} catch (IOException e) {
-//			logger.error(e.getMessage(), e);
-//		}
-//	}
-//
-//	public void WriteEventDataToFile(String filePath, String queryStr, int rows, String... filterQueries) throws SolrServerException {
-//		ObjectWriter writer = new ObjectMapper().writer().withDefaultPrettyPrinter();
-//		List<IndexedStock> events = QueryIndexedDocuments(IndexedStock.class, queryStr, rows, 0, null, filterQueries);
-//		try {
-//			String output = writer.writeValueAsString(events);
-//			File file = new File(filePath);
-//			file.getParentFile().mkdirs();
-//			Files.write(output, file, Charset.forName("Cp1252"));
-//		} catch (IOException e) {
-//			logger.error(e.getMessage(), e);
-//		}
-//	}
-//
-//	public void WriteSourceDataToFile(String filePath, String queryStr, int rows, String... filterQueries) throws SolrServerException {
-//		ObjectWriter writer = new ObjectMapper().writer().withDefaultPrettyPrinter();
-//		List<IndexedStockSource> sources = QueryIndexedDocuments(IndexedStockSource.class, queryStr, rows, 0, null, filterQueries);
-//		try {
-//			String output = writer.writeValueAsString(sources);
-//			File file = new File(filePath);
-//			file.getParentFile().mkdirs();
-//			Files.write(output, file, Charset.forName("Cp1252"));
-//		} catch (IOException e) {
-//			logger.error(e.getMessage(), e);
-//		}
-//	}
-//
-//	private class StopDoc extends SolrDocument {
-//		// marker to finish queuing
-//	}
-//
-//	private class CallbackHandler extends StreamingResponseCallback {
-//		private BlockingQueue<SolrDocument> queue;
-//		private long currentPosition;
-//		private long numFound;
-//
-//		public CallbackHandler(BlockingQueue<SolrDocument> aQueue) {
-//			queue = aQueue;
-//		}
-//
-//		@Override
-//		public void streamDocListInfo(long aNumFound, long aStart, Float aMaxScore) {
-//			// called before start of streaming
-//			// probably use for some statistics
-//			currentPosition = aStart;
-//			numFound = aNumFound;
-//			if (numFound == 0) {
-//				queue.add(new StopDoc());
-//			}
-//		}
-//
-//		@Override
-//		public void streamSolrDocument(SolrDocument doc) {
-//			currentPosition++;
-//			queue.add(doc);
-//			if (currentPosition == numFound) {
-//				queue.add(new StopDoc());
-//			}
-//		}
-//	}
+
+	public void WriteDataToFile(String filePath, String queryStr, int rows, String... filterQueries) throws SolrServerException {
+		ObjectWriter writer = new ObjectMapper().writer().withDefaultPrettyPrinter();
+		SolrDocumentList events = QuerySolrDocuments(queryStr, rows, 0, null, filterQueries);
+		try {
+			String output = writer.writeValueAsString(events);
+			File file = new File(filePath);
+			file.getParentFile().mkdirs();
+			Files.write(output, file, Charset.forName("Cp1252"));
+		} catch (IOException e) {
+			logger.error(e.getMessage(), e);
+		}
+	}
+
+	public void WriteStockDataToFile(String filePath, String queryStr, int rows, String... filterQueries) throws SolrServerException {
+		ObjectWriter writer = new ObjectMapper().writer().withDefaultPrettyPrinter();
+		List<IndexedStock> events = QueryIndexedDocuments(IndexedStock.class, queryStr, rows, 0, null, filterQueries);
+		try {
+			String output = writer.writeValueAsString(events);
+			File file = new File(filePath);
+			file.getParentFile().mkdirs();
+			Files.write(output, file, Charset.forName("Cp1252"));
+		} catch (IOException e) {
+			logger.error(e.getMessage(), e);
+		}
+	}
+
+	public void WriteNewsDataToFile(String filePath, String queryStr, int rows, String... filterQueries) throws SolrServerException {
+		ObjectWriter writer = new ObjectMapper().writer().withDefaultPrettyPrinter();
+		List<IndexedNews> sources = QueryIndexedDocuments(IndexedNews.class, queryStr, rows, 0, null, filterQueries);
+		try {
+			String output = writer.writeValueAsString(sources);
+			File file = new File(filePath);
+			file.getParentFile().mkdirs();
+			Files.write(output, file, Charset.forName("Cp1252"));
+		} catch (IOException e) {
+			logger.error(e.getMessage(), e);
+		}
+	}
+
+	private class StopDoc extends SolrDocument {
+		// marker to finish queuing
+	}
+
+	private class CallbackHandler extends StreamingResponseCallback {
+		private BlockingQueue<SolrDocument> queue;
+		private long currentPosition;
+		private long numFound;
+
+		public CallbackHandler(BlockingQueue<SolrDocument> aQueue) {
+			queue = aQueue;
+		}
+
+		@Override
+		public void streamDocListInfo(long aNumFound, long aStart, Float aMaxScore) {
+			// called before start of streaming
+			// probably use for some statistics
+			currentPosition = aStart;
+			numFound = aNumFound;
+			if (numFound == 0) {
+				queue.add(new StopDoc());
+			}
+		}
+
+		@Override
+		public void streamSolrDocument(SolrDocument doc) {
+			currentPosition++;
+			queue.add(doc);
+			if (currentPosition == numFound) {
+				queue.add(new StopDoc());
+			}
+		}
+	}
 }

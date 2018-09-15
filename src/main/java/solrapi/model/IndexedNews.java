@@ -163,7 +163,7 @@ public class IndexedNews extends IndexedObject  {
 	}
 
 	public String GetClusteringForm() {
-        String clusteringStr = id + "," + title.replace(",", "") + "," + body.replace(",", "");
+        String clusteringStr = id + "," + symbol + "," + title.replace(",", "") + "," + body.replace(",", "");
         clusteringStr = clusteringStr.replace("\r", " ")
                 .replace("\n", " ");
 
