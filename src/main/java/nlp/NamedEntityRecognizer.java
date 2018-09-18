@@ -57,6 +57,44 @@ public class NamedEntityRecognizer {
             return null;
         }
     }
+	
+/* 	public List<String> detectNamedEntities(String document, String category) {
+        TokenNameFinderModel model = models.get(category);
+        NameFinderME nameFinder = new NameFinderME(model);
+
+        String[] sentences = NLPTools.detectSentences(sentModel, document);
+        List<String> namedEntities = new ArrayList<>();
+        List<String> lowProbNamedEntities = new ArrayList<>();
+        List<String> tokenized = new ArrayList<>();
+        for (String sentence : sentences) {
+            String[] tokens = NLPTools.detectTokens(tokenizerModel, sentence);
+            tokenized.add(String.join(" ", tokens));
+            Span[] nameSpans = nameFinder.find(tokens);
+            double[] probs = nameFinder.probs(nameSpans);
+            for (int i = 0; i < nameSpans.length; i++) {
+                double prob = probs[i];
+                Span span = nameSpans[i];
+                int start = span.getStart();
+                int end = span.getEnd();
+                String[] entityParts = Arrays.copyOfRange(tokens, start, end);
+                String entity = String.join(" ", entityParts);
+                if (prob > 0.8) {
+                    namedEntities.add(entity);
+                } else {
+                    lowProbNamedEntities.add(entity);
+                }
+            }
+        }
+
+        try {
+            FileUtils.writeLines(new File("data/sentences.txt"), Arrays.asList(sentences));
+            FileUtils.writeLines(new File("data/tokenized.txt"), tokenized);
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+
+        return namedEntities;
+    } */
 
     public void trainNERModel(String trainingFilePath, String type, String modelPath) {
         try {
