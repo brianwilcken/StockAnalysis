@@ -8,7 +8,12 @@ import opennlp.tools.tokenize.TokenizerModel;
 import opennlp.tools.util.ObjectStream;
 import opennlp.tools.util.Span;
 import opennlp.tools.util.TrainingParameters;
+import org.apache.jute.Index;
+import org.apache.solr.client.solrj.SolrQuery;
+import org.apache.solr.client.solrj.SolrServerException;
 import org.springframework.core.io.ClassPathResource;
+import solrapi.SolrClient;
+import solrapi.model.IndexedNews;
 
 import java.io.BufferedOutputStream;
 import java.io.FileOutputStream;
@@ -19,6 +24,25 @@ import java.util.Arrays;
 import java.util.List;
 
 public class NamedEntityRecognizer {
+
+    public static void main(String[] args) {
+        NamedEntityRecognizer namedEntityRecognizer = new NamedEntityRecognizer();
+        ClassPathResource nerModel = new ClassPathResource(Tools.getProperty("nlp.personNerModel"));
+        SolrClient client = new SolrClient("http://localhost:8983/solr");
+        SolrQuery.SortClause clause = new SolrQuery.SortClause("articleDate", SolrQuery.ORDER.desc);
+        try {
+            List<IndexedNews> indexedNewss = client.QueryIndexedDocuments(IndexedNews.class, "symbol:VKTX AND body:*", 100000, 0, clause);
+            for (IndexedNews indexedNews : indexedNewss) {
+                String content = indexedNews.getBody();
+                List<String> entities = namedEntityRecognizer.detectNamedEntities(content, nerModel);
+                for (String entity : entities) {
+                    System.out.println(entity);
+                }
+            }
+        } catch (SolrServerException e) {
+            e.printStackTrace();
+        }
+    }
 
     public List<String> detectNamedEntities(String content, ClassPathResource nerModel) {
         try {

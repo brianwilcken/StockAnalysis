@@ -3,17 +3,19 @@ package webapp.controllers;
 import alphavantageapi.AlphavantageClient;
 import alphavantageapi.model.StockPullOperation;
 import common.Tools;
+import nlp.NamedEntityRecognizer;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.apache.solr.client.solrj.SolrQuery;
+import org.apache.solr.client.solrj.SolrServerException;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.core.io.ClassPathResource;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.CrossOrigin;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestMethod;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 import solrapi.SolrClient;
+import solrapi.model.IndexedNews;
 import solrapi.model.IndexedStocksQueryParams;
 import webapp.models.JsonResponse;
 import webapp.services.RefreshStockDataService;
@@ -98,6 +100,27 @@ public class StocksController {
             logger.error(context.getRemoteAddr() + " -> " + e);
             Tools.getExceptions().add(e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Tools.formJsonResponse(null, params.getQueryTimeStamp()));
+        }
+    }
+
+    @RequestMapping(path="/newsNLP/{symbol}", method= RequestMethod.GET, produces= MediaType.APPLICATION_JSON_VALUE)
+    public ResponseEntity<JsonResponse> getStockNewsAttributes(@PathVariable String symbol) {
+        NamedEntityRecognizer namedEntityRecognizer = new NamedEntityRecognizer();
+        ClassPathResource nerModel = new ClassPathResource(Tools.getProperty("nlp.personNerModel"));
+        SolrQuery.SortClause clause = new SolrQuery.SortClause("articleDate", SolrQuery.ORDER.desc);
+        try {
+            List<IndexedNews> indexedNewss = solrClient.QueryIndexedDocuments(IndexedNews.class, "symbol:VKTX AND body:*", 100000, 0, clause);
+            List<String> allEntities = new ArrayList<>();
+            for (IndexedNews indexedNews : indexedNewss) {
+                String content = indexedNews.getBody();
+                List<String> entities = namedEntityRecognizer.detectNamedEntities(content, nerModel);
+                allEntities.addAll(entities);
+            }
+            return ResponseEntity.ok().body(Tools.formJsonResponse(allEntities));
+        } catch (SolrServerException e) {
+            logger.error(context.getRemoteAddr() + " -> " + e);
+            Tools.getExceptions().add(e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Tools.formJsonResponse(null));
         }
     }
 }

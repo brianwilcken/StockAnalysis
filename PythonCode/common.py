@@ -46,6 +46,13 @@ def pull_data_by_interval(interval):
     stock_data[:] = stock_data[:].astype('float64')
     
     return stock_data
+
+def pull_latest_news_NLP(symbol):
+    url = 'http://localhost:8080/stockAnalysis/api/stocks/newsNLP/' + symbol
+    response = requests.get(url)
+    newsEntities = json.loads(response.content)
+    
+    return newsEntities
     
 def modify_for_blind_test(stock_data, percent):
     blind_test_data = stock_data.head(np.floor(len(stock_data)*percent).astype('int'))

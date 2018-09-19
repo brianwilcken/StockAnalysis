@@ -34,7 +34,7 @@ import common as com
 import tf_keras_models as mod
 from tensorflow import keras
 
-symbol = 'NFLX'
+symbol = 'AGIO'
 interval = '1min'
 
 com.init_stock_data_update(symbol, interval)
