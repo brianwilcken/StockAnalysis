@@ -162,6 +162,10 @@ public class IndexedNews extends IndexedObject  {
 		return sentiment + "\t" + getNormalizedDocCatString(new PorterStemmer());
 	}
 
+	public String GetNERModelTrainingForm() {
+		return body;
+	}
+
 	public String GetClusteringForm() {
         String clusteringStr = id + "," + symbol + "," + title.replace(",", "") + "," + body.replace(",", "");
         clusteringStr = clusteringStr.replace("\r", " ")

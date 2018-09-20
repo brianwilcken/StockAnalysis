@@ -2,6 +2,7 @@ package solrapi;
 
 import java.io.File;
 import java.io.FileOutputStream;
+import java.io.FileWriter;
 import java.io.IOException;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.InvocationTargetException;
@@ -53,7 +54,22 @@ public class SolrClient {
 
 	public static void main(String[] args) {
 		SolrClient solrClient = new SolrClient("http://localhost:8983/solr");
-		solrClient.writeTrainingDataToFile("data/news-clustering.csv", solrClient::getNewsClusteringQuery, solrClient::formatForClustering, new ClusteringThrottle("", 0));
+		//solrClient.writeTrainingDataToFile("data/news-clustering.csv", solrClient::getNewsClusteringQuery, solrClient::formatForClustering, new ClusteringThrottle("", 0));
+
+		SortClause sort = new SortClause("random_*", SolrQuery.ORDER.asc);
+		try {
+			List<IndexedNews> nerNews = solrClient.QueryIndexedDocuments(IndexedNews.class, "body:*", 100, 0, sort);
+			List<String> articles = nerNews.stream().map(p -> p.GetNERModelTrainingForm()).collect(Collectors.toList());
+			FileWriter writer = new FileWriter("data/ner-symbol.train");
+			for(String str: articles) {
+				writer.write(str);
+			}
+			writer.close();
+		} catch (SolrServerException | IOException e) {
+			e.printStackTrace();
+		}
+
+
 //		try {
 //			solrClient.WriteEventDataToFile("data/all-model-training-events.json", "eventState:* AND concepts:*", 10000);
 //			//solrClient.UpdateIndexedEventsFromJsonFile("data/solrData.json");
@@ -264,7 +280,6 @@ public class SolrClient {
 	public void writeTrainingDataToFile(String trainingFilePath, Function<SolrQuery, SolrQuery> queryGetter,
 										Tools.CheckedBiConsumer<IndexedNews, FileOutputStream> consumer, TrainingDataThrottle throttle) {
 		SolrQuery query = queryGetter.apply(new SolrQuery());
-		query.setRows(1000000);
 		try {
 			File file = new File(trainingFilePath);
 			file.getParentFile().mkdirs();
@@ -370,6 +385,10 @@ public class SolrClient {
 		fos.write(news.GetAnalysisForm().getBytes(Charset.forName("Cp1252")));
 	}
 
+	public void formatForNER(IndexedNews news, FileOutputStream fos) throws IOException {
+		fos.write(news.GetNERModelTrainingForm().getBytes(Charset.forName("Cp1252")));
+	}
+
 //	public SolrQuery getDoccatDataQuery(SolrQuery query) {
 //		query.setQuery("eventState:* AND -eventState:" + SolrConstants.Events.EVENT_STATE_NEW);
 //		query.addFilterQuery("category:* AND -category:" + SolrConstants.Events.CATEGORY_UNCATEGORIZED);
@@ -385,6 +404,16 @@ public class SolrClient {
 
 	public SolrQuery getNewsClusteringQuery(SolrQuery query) {
 		query.setQuery("body:*");
+		query.setRows(10000000);
+
+		return query;
+	}
+
+	public SolrQuery getNewsNERQuery(SolrQuery query) {
+		query.setQuery("body:*");
+		query.setRows(10);
+		SortClause sort = new SortClause("random_*", SolrQuery.ORDER.asc);
+		query.setSort(sort);
 
 		return query;
 	}
