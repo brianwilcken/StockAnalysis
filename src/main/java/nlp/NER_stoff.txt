@@ -1,0 +1,744 @@
+package nlp;
+
+import common.Tools;
+import opennlp.tools.namefind.*;
+import opennlp.tools.sentdetect.SentenceModel;
+import opennlp.tools.tokenize.TokenizerModel;
+import opennlp.tools.util.ObjectStream;
+import opennlp.tools.util.Span;
+import opennlp.tools.util.TrainingParameters;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.apache.solr.client.solrj.SolrQuery;
+import org.apache.solr.client.solrj.SolrServerException;
+import org.apache.solr.common.SolrDocument;
+import org.apache.solr.common.SolrDocumentList;
+import org.springframework.core.io.ClassPathResource;
+import solrapi.SolrClient;
+
+import java.io.*;
+import java.util.*;
+import java.util.function.Function;
+import java.util.stream.Collectors;
+
+public class NamedEntityRecognizer {
+
+    final static Logger logger = LogManager.getLogger(NamedEntityRecognizer.class);
+
+    public static void main(String[] args) {
+        SolrClient client = new SolrClient("http://localhost:8983/solr");
+        NamedEntityRecognizer namedEntityRecognizer = new NamedEntityRecognizer(client);
+
+        autoAnnotateAllForCategory(client, namedEntityRecognizer, "Wastewater");
+
+//        try {
+//            namedEntityRecognizer.trainNERModel("Electricity");
+//        } catch (InsufficientTrainingDataException e) {
+//            e.printStackTrace();
+//        }
+    }
+
+    private static void autoAnnotateAllForCategory(SolrClient client, NamedEntityRecognizer namedEntityRecognizer, String category) {
+        try {
+            SolrDocumentList docs = client.QuerySolrDocuments("category:" + category + " AND -annotated:*", 1000, 0, null);
+            for (SolrDocument doc : docs) {
+                String document = (String)doc.get("docText");
+                String annotated = namedEntityRecognizer.autoAnnotate(document, category, 0.5);
+                if (doc.containsKey("annotated")) {
+                    doc.replace("annotated", annotated);
+                } else {
+                    doc.addField("annotated", annotated);
+                }
+                //FileUtils.writeStringToFile(new File("data/annotated.txt"), annotated, Charset.forName("Cp1252").displayName());
+
+                client.indexDocument(doc);
+            }
+        } catch (SolrServerException e) {
+            e.printStackTrace();
+        }
+    }
+
+    public String autoAnnotate(String document, String category, double threshold) {
+        String[] sentences = detectSentences(document);
+        document = String.join("\r\n", sentences);
+        Map<String, Double> entities = detectNamedEntities(sentences, category, threshold);
+        if (!entities.isEmpty()) {
+            entities = entities.entrySet().stream().sorted(Collections.reverseOrder(Map.Entry.comparingByKey()))
+                    .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue, (e1, e2) -> e1, LinkedHashMap::new));
+            for (String tag : entities.keySet()) {
+                document = document.replace(tag, " <START:FAC> " + tag + " <END> ");
+            }
+            document = document.replaceAll(" {2,}", " "); //ensure there are no multi-spaces that could disrupt model training
+        }
+        return document;
+    }
+
+    private static final Map<String, String> models;
+    static
+    {
+        models = new HashMap<>();
+        models.put("Water", Tools.getProperty("nlp.waterNerModel"));
+        models.put("Wastewater", Tools.getProperty("nlp.wastewaterNerModel"));
+        models.put("Electricity", Tools.getProperty("nlp.electricityNerModel"));
+    }
+
+    private static final Map<String, String> trainingFiles;
+    static
+    {
+        trainingFiles = new HashMap<>();
+        trainingFiles.put("Water", Tools.getProperty("nlp.waterNerTrainingFile"));
+        trainingFiles.put("Wastewater", Tools.getProperty("nlp.wastewaterNerTrainingFile"));
+        trainingFiles.put("Electricity", Tools.getProperty("nlp.electricityNerTrainingFile"));
+    }
+
+    private static final Map<String, Function<SolrQuery, SolrQuery>> dataGetters;
+    static
+    {
+        dataGetters = new HashMap<>();
+        dataGetters.put("Water", SolrClient::getWaterDataQuery);
+        dataGetters.put("Wastewater", SolrClient::getWastewaterDataQuery);
+        dataGetters.put("Electricity", SolrClient::getElectricityDataQuery);
+    }
+
+    private SentenceModel sentModel;
+    private TokenizerModel tokenizerModel;
+    private SolrClient client;
+
+    public NamedEntityRecognizer(SolrClient client) {
+        sentModel = NLPTools.getModel(SentenceModel.class, new ClassPathResource(Tools.getProperty("nlp.sentenceDetectorModel")));
+        tokenizerModel = NLPTools.getModel(TokenizerModel.class, new ClassPathResource(Tools.getProperty("nlp.tokenizerModel")));
+        this.client = client;
+    }
+
+    public Map<String, Double> detectNamedEntities(String document, String category, double threshold) throws IOException {
+        String[] sentences = detectSentences(document);
+        return detectNamedEntities(sentences, category, threshold);
+    }
+
+    public Map<String, Double> detectNamedEntities(String[] sentences, String category, double threshold, int... numTries) {
+        Map<String, Double> namedEntities = new HashMap<>();
+        try {
+            TokenNameFinderModel model = NLPTools.getModel(TokenNameFinderModel.class, models.get(category));
+            NameFinderME nameFinder = new NameFinderME(model);
+
+            List<String> tokenized = new ArrayList<>();
+            for (String sentence : sentences) {
+                String[] tokens = NLPTools.detectTokens(tokenizerModel, sentence);
+                tokenized.add(String.join(" ", tokens));
+                Span[] nameSpans = nameFinder.find(tokens);
+                double[] probs = nameFinder.probs(nameSpans);
+                for (int i = 0; i < nameSpans.length; i++) {
+                    double prob = probs[i];
+                    Span span = nameSpans[i];
+                    int start = span.getStart();
+                    int end = span.getEnd();
+                    String[] entityParts = Arrays.copyOfRange(tokens, start, end);
+                    String entity = String.join(" ", entityParts);
+                    if (!namedEntities.containsKey(entity) && prob > threshold) {
+                        namedEntities.put(entity, prob);
+                    }
+                }
+            }
+
+//        try {
+//            FileUtils.writeLines(new File("data/sentences.txt"), Charset.forName("Cp1252").displayName(), Arrays.asList(sentences));
+//            FileUtils.writeLines(new File("data/tokenized.txt"), Charset.forName("Cp1252").displayName(), tokenized);
+//        } catch (IOException e) {
+//            e.printStackTrace();
+//        }
+
+            return namedEntities;
+        } catch (IOException e) {
+            if(numTries.length == 0) {
+                trainNERModel(category); //model may not yet exist, but maybe there is data to train it...
+                return detectNamedEntities(sentences, category, threshold, 1);
+            } else {
+                //no model training data available...
+                logger.error(e.getMessage(), e);
+                return namedEntities; //this collection will be empty
+            }
+        }
+    }
+
+    public String[] detectSentences(String document) {
+        document = document.replace("\r\n", "");
+        document = document.replace("(", " ");
+        document = document.replace(")", " ");
+        document = document.replaceAll("\\P{Print}", " ");
+        //document = document.replaceAll("(\\w+\\W+)?\\d+(\\w+\\W+)?", ""); //removes all the numbers
+        //document = document.replaceAll("[$-,/:-?{-~!\"^_`\\[\\]+]", ""); //removes most special characters
+        document = document.replaceAll("[%-*/:-?{-~!\"^_`\\[\\]+]", "");
+        //document = document.replaceAll("-", " ");
+        document = document.replaceAll(" +\\.", ".");
+        document = document.replaceAll("\\.{2,}", ". ");
+        document = document.replaceAll(" {2,}", " ");
+        String[] sentences = NLPTools.detectSentences(sentModel, document);
+
+        return sentences;
+    }
+
+    public void trainNERModel(String category) {
+        try {
+            String trainingFile = trainingFiles.get(category);
+
+            client.writeTrainingDataToFile(trainingFile, dataGetters.get(category), client::formatForNERModelTraining);
+            ObjectStream<String> lineStream = NLPTools.getLineStreamFromMarkableFile(trainingFile);
+
+            TokenNameFinderModel model;
+
+            TrainingParameters params = new TrainingParameters();
+            params.put(TrainingParameters.ITERATIONS_PARAM, 300);
+            params.put(TrainingParameters.CUTOFF_PARAM, 1);
+
+            try (ObjectStream<NameSample> sampleStream = new NameSampleDataStream(lineStream)) {
+                model = NameFinderME.train("en", null, sampleStream, params,
+                        TokenNameFinderFactory.create(null, null, Collections.emptyMap(), new BioCodec()));
+            }
+
+            try (OutputStream modelOut = new BufferedOutputStream(new FileOutputStream(models.get(category)))) {
+                model.serialize(modelOut);
+            }
+
+        } catch (IOException e) {
+            logger.error(e.getMessage(), e);
+        }
+    }
+}
+
+
+
+
+
+package solrapi;
+
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.lang.reflect.Constructor;
+import java.lang.reflect.InvocationTargetException;
+import java.nio.charset.Charset;
+import java.util.*;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.function.Function;
+import java.util.stream.Collectors;
+
+import common.Tools;
+import org.apache.commons.io.FileUtils;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.apache.logging.log4j.util.Strings;
+import org.apache.solr.client.solrj.SolrQuery;
+import org.apache.solr.client.solrj.SolrQuery.SortClause;
+import org.apache.solr.client.solrj.SolrServerException;
+import org.apache.solr.client.solrj.StreamingResponseCallback;
+import org.apache.solr.client.solrj.impl.HttpSolrClient;
+import org.apache.solr.client.solrj.response.QueryResponse;
+import org.apache.solr.client.solrj.response.UpdateResponse;
+import org.apache.solr.common.SolrDocument;
+import org.apache.solr.common.SolrDocumentList;
+import org.apache.solr.common.SolrInputDocument;
+import org.apache.solr.common.params.CommonParams;
+import org.apache.solr.common.params.MoreLikeThisParams;
+import org.apache.solr.common.util.SimpleOrderedMap;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.ObjectWriter;
+import com.google.common.io.Files;
+
+public class SolrClient {
+
+	private final static String COLLECTION = "dependencies";
+
+	final static Logger logger = LogManager.getLogger(SolrClient.class);
+
+	private HttpSolrClient client;
+	private static ObjectMapper mapper = new ObjectMapper();
+
+	public SolrClient(String solrHostURL) {
+		client = new HttpSolrClient.Builder(solrHostURL).build();
+	}
+
+	public static void main(String[] args) {
+		SolrClient client = new SolrClient("http://localhost:8983/solr");
+		//client.writeTrainingDataToFile(Tools.getProperty("nlp.waterNerTrainingFile"), client::getWaterDataQuery, client::formatForNERModelTraining);
+
+		//retrieveAnnotatedData(client, "0bb9ead9-c71a-43fa-8e80-35e5d566c15e");
+		updateAnnotatedData(client, "0bb9ead9-c71a-43fa-8e80-35e5d566c15e");
+	}
+
+	private static void retrieveAnnotatedData(SolrClient client, String id) {
+		try {
+			SolrDocumentList docs = client.QuerySolrDocuments("id:" + id, 1, 0, null);
+			SolrDocument doc = docs.get(0);
+
+			String annotated = (String)doc.get("annotated");
+
+			FileUtils.writeStringToFile(new File("data/annotated.txt"), annotated, Charset.forName("Cp1252").displayName());
+		} catch (SolrServerException | IOException e) {
+			e.printStackTrace();
+		}
+	}
+
+	private static void updateAnnotatedData(SolrClient client, String id) {
+		String annotated = Tools.GetFileString("data/annotated.txt");
+		try {
+			SolrDocumentList docs = client.QuerySolrDocuments("id:" + id, 1, 0, null);
+			SolrDocument doc = docs.get(0);
+			if (doc.containsKey("annotated")) {
+				doc.replace("annotated", annotated);
+			} else {
+				doc.addField("annotated", annotated);
+			}
+
+			client.indexDocument(doc);
+		} catch (SolrServerException e) {
+			e.printStackTrace();
+		}
+	}
+
+	public void indexDocuments(Collection<SolrDocument> docs) throws SolrServerException {
+		try {
+			if (!docs.isEmpty()) {
+				List<SolrInputDocument> inputDocuments = new ArrayList<>();
+				for (SolrDocument doc : docs) {
+					SolrInputDocument solrInputDocument = new SolrInputDocument();
+
+					for (String name : doc.getFieldNames()) {
+						solrInputDocument.addField(name, doc.getFieldValue(name));
+					}
+					inputDocuments.add(solrInputDocument);
+				}
+
+				client.add(COLLECTION, inputDocuments);
+				UpdateResponse updateResponse = client.commit(COLLECTION);
+
+				if (updateResponse.getStatus() != 0) {
+					//TODO What should happen if the update fails?
+				}
+			}
+		} catch (IOException e) {
+			logger.error(e.getMessage(), e);
+		}
+	}
+
+	public void indexDocument(SolrDocument doc) throws SolrServerException {
+		List<SolrDocument> docs = new ArrayList<>();
+		docs.add(doc);
+		indexDocuments(docs);
+	}
+
+	public void deleteDocuments(String query) throws SolrServerException {
+	    try {
+			client.deleteByQuery(COLLECTION, query);
+			UpdateResponse updateResponse = client.commit(COLLECTION);
+
+            if (updateResponse.getStatus() != 0) {
+                //TODO What should happen if the update fails?
+            }
+        } catch (IOException e) {
+			logger.error(e.getMessage(), e);
+        }
+    }
+
+	public Boolean DocumentExists(String queryStr) throws SolrServerException {
+		SolrQuery query = new SolrQuery();
+		query.setRows(0);
+		query.setQuery(queryStr);
+		try {
+			QueryResponse response = client.query(COLLECTION, query);
+			return response.getResults().getNumFound() > 0;
+		} catch (IOException e) {
+			logger.error(e.getMessage(), e);
+			return false;
+		}
+	}
+
+	public SimpleOrderedMap<?> QueryFacets(String queryStr, String facetQuery) throws SolrServerException {
+		SolrQuery query = new SolrQuery();
+		query.setRows(0);
+		query.setQuery(queryStr);
+		query.add("json.facet", facetQuery);
+		try {
+			QueryResponse response = client.query(COLLECTION, query);
+			SimpleOrderedMap<?> facets = (SimpleOrderedMap<?>) response.getResponse().get("facets");
+			return facets;
+		} catch (IOException e) {
+			logger.error(e.getMessage(), e);
+			return null;
+		}
+	}
+
+	public SolrDocumentList FindSimilarDocuments(String searchText) throws SolrServerException {
+		SolrQuery query = new SolrQuery();
+	    query.setRequestHandler("/" + MoreLikeThisParams.MLT);
+	    query.setParam(CommonParams.STREAM_BODY, searchText);
+	    query.setRows(20);
+	    try {
+			SolrDocumentList response = client.query(COLLECTION, query).getResults();
+			return response;
+		} catch (IOException e) {
+			logger.error(e.getMessage(), e);
+			return null;
+		}
+	}
+
+	public SolrDocumentList QuerySolrDocuments(String queryStr, int rows, int start, SortClause sort, String... filterQueries) throws SolrServerException {
+		SolrQuery query = new SolrQuery();
+		query.setQuery(queryStr);
+		if (filterQueries != null) {
+			query.setFilterQueries(filterQueries);
+		}
+		query.setRows(rows);
+		query.setStart(start);
+		if (sort != null) {
+			query.setSort(sort);
+		} else {
+
+		}
+		try {
+			SolrDocumentList response = client.query(COLLECTION, query).getResults();
+			return response;
+		} catch (IOException e) {
+			logger.error(e.getMessage(), e);
+			return null;
+		}
+	}
+
+	public <T> List<T> QueryIndexedDocuments(Class<T> clazz, String queryStr, int rows, int start, SortClause sort, String... filterQueries) throws SolrServerException {
+		SolrQuery query = new SolrQuery();
+		query.setQuery(queryStr);
+		if (filterQueries != null) {
+			query.setFilterQueries(filterQueries);
+		}
+		query.setRows(rows);
+		query.setStart(start);
+		if (sort != null) {
+			query.setSort(sort);
+		} else {
+
+        }
+		try {
+			Constructor<?> cons;
+			try {
+				cons = clazz.getConstructor(SolrDocument.class);
+			} catch (NoSuchMethodException | SecurityException e1) {
+				return null;
+			}
+			SolrDocumentList response = client.query(COLLECTION, query).getResults();
+			List<T> typedDocs = convertSolrDocsToTypedDocs(cons, response);
+			return typedDocs;
+		} catch (IOException e) {
+			logger.error(e.getMessage(), e);
+			return null;
+		}
+	}
+
+	private <T> List<T> convertSolrDocsToTypedDocs(Constructor<?> cons, SolrDocumentList docs) {
+		List<T> typedDocs = (List<T>) docs.stream().map(p -> {
+			try {
+				return cons.newInstance(p);
+			} catch (InstantiationException | IllegalAccessException | IllegalArgumentException
+					| InvocationTargetException e) {
+				logger.error(e.getMessage(), e);
+				return null;
+			}
+		}).collect(Collectors.toList());
+
+		return typedDocs;
+	}
+
+	public static SolrQuery getAnnotatedDataQuery(SolrQuery query) {
+		query.setQuery("annotated:*");
+
+		return query;
+	}
+
+	public static SolrQuery getWaterDataQuery(SolrQuery query) {
+		query.setQuery("annotated:* AND category:Water");
+
+		return query;
+	}
+
+	public static SolrQuery getWastewaterDataQuery(SolrQuery query) {
+		query.setQuery("annotated:* AND category:Wastewater");
+
+		return query;
+	}
+
+	public static SolrQuery getElectricityDataQuery(SolrQuery query) {
+		query.setQuery("annotated:* AND category:Electricity");
+
+		return query;
+	}
+
+	public void formatForNERModelTraining(SolrDocument doc, FileOutputStream fos) throws IOException {
+		String[] lines = ((String)doc.get("annotated")).split("\r\n");
+		List<String> annotatedLines = Arrays.stream(lines).filter(p -> p.contains("<START:")).collect(Collectors.toList());
+		String onlyAnnotated = String.join("\r\n", annotatedLines);
+		fos.write(onlyAnnotated.getBytes(Charset.forName("Cp1252")));
+	}
+
+	public void WriteDataToFile(String filePath, String queryStr, int rows, String... filterQueries) throws SolrServerException {
+		ObjectWriter writer = new ObjectMapper().writer().withDefaultPrettyPrinter();
+		SolrDocumentList docs = QuerySolrDocuments(queryStr, rows, 0, null, filterQueries);
+		try {
+			String output = writer.writeValueAsString(docs);
+			File file = new File(filePath);
+			file.getParentFile().mkdirs();
+			Files.write(output, file, Charset.forName("Cp1252"));
+		} catch (IOException e) {
+			logger.error(e.getMessage(), e);
+		}
+	}
+
+	public void writeTrainingDataToFile(String trainingFilePath, Function<SolrQuery, SolrQuery> queryGetter,
+										Tools.CheckedBiConsumer<SolrDocument, FileOutputStream> consumer) {
+		SolrQuery query = queryGetter.apply(new SolrQuery());
+		query.setRows(1000000);
+		try {
+			File file = new File(trainingFilePath);
+			file.getParentFile().mkdirs();
+			FileOutputStream fos = new FileOutputStream(file);
+			final BlockingQueue<SolrDocument> tmpQueue = new LinkedBlockingQueue<SolrDocument>();
+			client.queryAndStreamResponse(COLLECTION, query, new CallbackHandler(tmpQueue));
+
+			SolrDocument tmpDoc;
+			do {
+				tmpDoc = tmpQueue.take();
+				if (!(tmpDoc instanceof StopDoc)) {
+					consumer.apply(tmpDoc, fos);
+					fos.write(System.lineSeparator().getBytes());
+				}
+			} while (!(tmpDoc instanceof StopDoc));
+
+			fos.close();
+		} catch (Exception e) {
+			logger.error(e.getMessage(), e);
+		}
+	}
+
+	private class StopDoc extends SolrDocument {
+		// marker to finish queuing
+	}
+
+	private class CallbackHandler extends StreamingResponseCallback {
+		private BlockingQueue<SolrDocument> queue;
+		private long currentPosition;
+		private long numFound;
+
+		public CallbackHandler(BlockingQueue<SolrDocument> aQueue) {
+			queue = aQueue;
+		}
+
+		@Override
+		public void streamDocListInfo(long aNumFound, long aStart, Float aMaxScore) {
+			// called before start of streaming
+			// probably use for some statistics
+			currentPosition = aStart;
+			numFound = aNumFound;
+			if (numFound == 0) {
+				queue.add(new StopDoc());
+			}
+		}
+
+		@Override
+		public void streamSolrDocument(SolrDocument doc) {
+			currentPosition++;
+			queue.add(doc);
+			if (currentPosition == numFound) {
+				queue.add(new StopDoc());
+			}
+		}
+	}
+}
+
+
+
+
+
+package nlp;
+
+import opennlp.tools.ml.EventTrainer;
+import opennlp.tools.sentdetect.SentenceDetectorME;
+import opennlp.tools.sentdetect.SentenceModel;
+import opennlp.tools.stemmer.Stemmer;
+import opennlp.tools.tokenize.TokenizerME;
+import opennlp.tools.tokenize.TokenizerModel;
+import opennlp.tools.util.*;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.apache.lucene.analysis.core.StopFilter;
+import org.apache.lucene.analysis.TokenStream;
+import org.apache.lucene.analysis.standard.StandardAnalyzer;
+import org.apache.lucene.analysis.tokenattributes.CharTermAttribute;
+import org.apache.lucene.util.Version;
+import org.springframework.core.io.ClassPathResource;
+
+import java.io.*;
+import java.lang.reflect.Constructor;
+import java.lang.reflect.InvocationTargetException;
+import java.nio.charset.StandardCharsets;
+
+public class NLPTools {
+    final static Logger logger = LogManager.getLogger(NLPTools.class);
+
+    public static TrainingParameters getTrainingParameters(int iterations, int cutoff) {
+        TrainingParameters mlParams = new TrainingParameters();
+        mlParams.put(TrainingParameters.ALGORITHM_PARAM, "MAXENT");
+        mlParams.put(TrainingParameters.TRAINER_TYPE_PARAM, EventTrainer.EVENT_VALUE);
+        mlParams.put(TrainingParameters.ITERATIONS_PARAM, iterations);
+        mlParams.put(TrainingParameters.CUTOFF_PARAM, cutoff);
+
+        return mlParams;
+    }
+
+    public static <T> T getModel(Class<T> clazz, ClassPathResource modelResource) {
+        try (InputStream modelIn = modelResource.getInputStream()) {
+
+            Constructor<?> cons = clazz.getConstructor(InputStream.class);
+
+            T o = (T) cons.newInstance(modelIn);
+
+            return o;
+        } catch (IOException e) {
+            // TODO Auto-generated catch block
+            e.printStackTrace();
+        } catch (NoSuchMethodException e) {
+            // TODO Auto-generated catch block
+            e.printStackTrace();
+        } catch (SecurityException e) {
+            // TODO Auto-generated catch block
+            e.printStackTrace();
+        } catch (InstantiationException e) {
+            // TODO Auto-generated catch block
+            e.printStackTrace();
+        } catch (IllegalAccessException e) {
+            // TODO Auto-generated catch block
+            e.printStackTrace();
+        } catch (IllegalArgumentException e) {
+            // TODO Auto-generated catch block
+            e.printStackTrace();
+        } catch (InvocationTargetException e) {
+            // TODO Auto-generated catch block
+            e.printStackTrace();
+        }
+        return null;
+    }
+
+    public static <T> T getModel(Class<T> clazz, String modelFilePath) throws IOException {
+        try (InputStream modelIn = new FileInputStream(modelFilePath)) {
+
+            Constructor<?> cons = clazz.getConstructor(InputStream.class);
+
+            T o = (T) cons.newInstance(modelIn);
+
+            return o;
+        } catch (NoSuchMethodException | SecurityException | InstantiationException | IllegalAccessException |
+                IllegalArgumentException | InvocationTargetException e) {
+            logger.fatal(e.getMessage(), e);
+        }
+        return null;
+    }
+
+    public static ObjectStream<String> getLineStreamFromString(final String data)
+    {
+        ObjectStream<String> lineStream = null;
+        try {
+            InputStreamFactory factory = new InputStreamFactory() {
+                public InputStream createInputStream() throws IOException {
+                    return new ByteArrayInputStream(data.getBytes(StandardCharsets.UTF_8));
+                }
+            };
+
+            lineStream = new PlainTextByLineStream(factory, StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            // TODO Auto-generated catch block
+            e.printStackTrace();
+        }
+
+        return lineStream;
+    }
+
+    public static ObjectStream<String> getLineStreamFromFile(final String filePath)
+    {
+        ObjectStream<String> lineStream = null;
+        try {
+            InputStreamFactory factory = new InputStreamFactory() {
+                public InputStream createInputStream() throws IOException {
+                    return new FileInputStream(filePath);
+                }
+            };
+
+            lineStream = new PlainTextByLineStream(factory, StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            // TODO Auto-generated catch block
+            e.printStackTrace();
+        }
+
+        return lineStream;
+    }
+
+    public static ObjectStream<String> getLineStreamFromMarkableFile(final String filePath)
+    {
+        ObjectStream<String> lineStream = null;
+        try {
+            MarkableFileInputStreamFactory factory = new MarkableFileInputStreamFactory(new File(filePath));
+
+            lineStream = new PlainTextByLineStream(factory, StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            // TODO Auto-generated catch block
+            e.printStackTrace();
+        }
+
+        return lineStream;
+    }
+
+    public static String[] detectSentences(SentenceModel model, String input) {
+        SentenceDetectorME sentenceDetector = new SentenceDetectorME(model);
+
+        String[] sentences = sentenceDetector.sentDetect(input);
+
+        return sentences;
+    }
+
+    public static String[] detectTokens(TokenizerModel model, String input) {
+        TokenizerME tokenDetector = new TokenizerME(model);
+
+        String[] tokens = tokenDetector.tokenize(input);
+
+        return tokens;
+    }
+
+    public static String normalizeText(Stemmer stemmer, String text) {
+        try {
+            //produce a token stream for use by the stopword filters
+            StandardAnalyzer analyzer = new StandardAnalyzer(Version.LUCENE_4_9);
+            TokenStream stream = analyzer.tokenStream("", text);
+
+            //get a handle to the filter that will remove stop words
+            StopFilter stopFilter = new StopFilter(Version.LUCENE_4_9, stream, analyzer.getStopwordSet());
+            stream.reset();
+            StringBuilder str = new StringBuilder();
+            //iterate through each token observed by the stop filter
+            while(stopFilter.incrementToken()) {
+                //get the next token that passes the filter
+                CharTermAttribute attr = stopFilter.getAttribute(CharTermAttribute.class);
+                //lemmatize the token and append it to the final output
+                str.append(stemmer.stem(attr.toString()) + " ");
+            }
+            analyzer.close();
+            stopFilter.end();
+            stopFilter.close();
+            stream.end();
+            stream.close();
+            return str.toString();
+        } catch (IOException e) {
+            // TODO Auto-generated catch block
+            e.printStackTrace();
+        }
+
+        return null;
+    }
+
+}
