@@ -26,6 +26,10 @@ given data series.
 
 """
 
+import os
+
+os.chdir('\\\\Desktop-ltmq880\\c\\code\\StockAnalysis\\PythonCode')
+
 import tensorflow as tf
 from sklearn.model_selection import train_test_split
 import numpy as np
@@ -33,14 +37,23 @@ import plot_tools as plt
 import common as com
 import tf_keras_models as mod
 from tensorflow import keras
+import pickle
 
-symbol = 'AGIO'
-interval = '1min'
+symbol = 'AMRN'
+interval = 'Daily'
 
-com.init_stock_data_update(symbol, interval)
+model_file_path = './models/' + symbol + '_' + interval + '/model.h5'
+norm_file_path = './norm_factors/' + symbol + '_' + interval + '/norm.pkl'
+perf_file_path = './perf_metrics/' + symbol + '_' + interval + '/perf.pkl'
+
+os.makedirs(os.path.dirname(model_file_path), exist_ok=True)
+os.makedirs(os.path.dirname(norm_file_path), exist_ok=True)
+os.makedirs(os.path.dirname(perf_file_path), exist_ok=True)
+
+#com.init_stock_data_update(symbol, interval)
 stock_data = com.pull_stock_data(symbol, interval)
 
-plt.plot_stock_activity(stock_data, symbol + ' ' + interval, flip=True)
+#plt.plot_stock_activity(stock_data, symbol + ' ' + interval, flip=True)
 
 #The latest quote may represent incomplete data.  This will be used for closing price estimation.
 latest_quote = stock_data.head(1)
@@ -82,16 +95,21 @@ data_test = (data_test - mean) / std
 blind_data = (blind_data - mean) / std
 latest_quote_norm = (latest_quote - mean) / std
 
-#build and compile the model
-if symbol in mod.modelFuncs and interval in mod.modelFuncs[symbol]:
-    model, epochs, early_stop_patience = mod.modelFuncs[symbol][interval]()
-else:
-    model, epochs, early_stop_patience = mod.get_generic_model()
+#save the normalization vars for later use
+with open(norm_file_path, 'wb') as f:
+    pickle.dump([mean, std], f)
 
 #fit the training data to the model
-early_stop = keras.callbacks.EarlyStopping(monitor='val_loss', patience=early_stop_patience)
 with tf.Session(config=tf.ConfigProto(log_device_placement=True, device_count={'CPU' : 1, 'GPU' : 0})) as sess:
     sess.run(tf.global_variables_initializer())
+    
+    #build and compile the model
+    if symbol in mod.modelFuncs and interval in mod.modelFuncs[symbol]:
+        model, epochs, early_stop_patience = mod.modelFuncs[symbol][interval]()
+    else:
+        model, epochs, early_stop_patience = mod.get_generic_model()
+    
+    early_stop = keras.callbacks.EarlyStopping(monitor='val_loss', patience=early_stop_patience)
     history = model.fit(data_train, labels_train, epochs=epochs,
                         validation_data=(data_test, labels_test), verbose=1, callbacks=[early_stop])
     
@@ -105,4 +123,11 @@ with tf.Session(config=tf.ConfigProto(log_device_placement=True, device_count={'
     predicted_future_closing_price = model.predict(latest_quote_norm)
     predicted_future_closing_price_corrected = predicted_future_closing_price - mean_error
     
+    #save model performance metrics
+    with open(perf_file_path, 'wb') as f:
+        pickle.dump([mean_error, mae], f)
+    
+    #save the model for later use
+    model.save(model_file_path)
+
     

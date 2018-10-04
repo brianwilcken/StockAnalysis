@@ -1,20 +1,15 @@
 package webscraper;
 
-import com.bericotech.clavin.gazetteer.GeoName;
-import com.bericotech.clavin.resolver.ResolvedLocation;
+import nlp.NamedEntityRecognizer;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.solr.client.solrj.SolrServerException;
 import solrapi.model.IndexedNews;
-import solrapi.model.IndexedStock;
 import geoparsing.LocationResolver;
 
-import common.DetectHtml;
 import common.Tools;
-import de.l3s.boilerpipe.BoilerpipeProcessingException;
 import de.l3s.boilerpipe.extractors.ArticleExtractor;
 import nlp.NLPTools;
-import nlp.NamedEntityRecognizer;
 import opennlp.tools.sentdetect.SentenceModel;
 import opennlp.tools.stemmer.PorterStemmer;
 //import org.deeplearning4j.models.embeddings.loader.WordVectorSerializer;
@@ -34,24 +29,8 @@ import org.jsoup.select.Elements;
 import org.springframework.core.io.ClassPathResource;
 import solrapi.SolrClient;
 
-import java.io.File;
 import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Paths;
-import java.nio.file.StandardOpenOption;
-import java.text.DateFormat;
-import java.text.ParseException;
-import java.text.SimpleDateFormat;
-import java.time.Instant;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Date;
-import java.util.List;
-import java.util.concurrent.TimeUnit;
 import java.util.function.*;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
-import java.util.stream.Collectors;
 
 public class WebClient {
 
@@ -87,11 +66,11 @@ public class WebClient {
 
     public WebClient() {
         articleExtractor = new ArticleExtractor();
-        ner = new NamedEntityRecognizer();
         stemmer = new PorterStemmer();
         sentModel = NLPTools.getModel(SentenceModel.class, new ClassPathResource(Tools.getProperty("nlp.sentenceDetectorModel")));
         locationResolver = new LocationResolver();
         solrClient = new SolrClient(Tools.getProperty("solr.url"));
+        ner = new NamedEntityRecognizer(solrClient);
         //categorizer = new EventCategorizer(solrClient);
     }
 

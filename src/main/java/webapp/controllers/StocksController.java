@@ -23,7 +23,9 @@ import webscraper.WebClient;
 
 import javax.annotation.PostConstruct;
 import javax.servlet.http.HttpServletRequest;
+import javax.websocket.server.PathParam;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -36,6 +38,7 @@ public class StocksController {
     private WebClient webClient;
     private AlphavantageClient alphavantageClient;
     private List<Exception> exceptions;
+    private NamedEntityRecognizer namedEntityRecognizer;
 
     final static Logger logger = LogManager.getLogger(StocksController.class);
 
@@ -50,6 +53,7 @@ public class StocksController {
         alphavantageClient = new AlphavantageClient();
         solrClient = new SolrClient(Tools.getProperty("solr.url"));
         exceptions = new ArrayList<>();
+        namedEntityRecognizer = new NamedEntityRecognizer(solrClient);
     }
 
     public WebClient getWebClient() { return webClient; }
@@ -103,19 +107,40 @@ public class StocksController {
         }
     }
 
-    @RequestMapping(path="/newsNLP/{symbol}", method= RequestMethod.GET, produces= MediaType.APPLICATION_JSON_VALUE)
-    public ResponseEntity<JsonResponse> getStockNewsAttributes(@PathVariable String symbol) {
-        NamedEntityRecognizer namedEntityRecognizer = new NamedEntityRecognizer();
-        ClassPathResource nerModel = new ClassPathResource(Tools.getProperty("nlp.personNerModel"));
+    @RequestMapping(path="/news", method=RequestMethod.GET, produces=MediaType.APPLICATION_JSON_VALUE)
+    public ResponseEntity<JsonResponse> getStockNews(IndexedStocksQueryParams params) {
+        logger.info(context.getRemoteAddr() + " -> " + "In getStockNews method");
+        try {
+            SolrQuery.SortClause clause = new SolrQuery.SortClause("articleDate", SolrQuery.ORDER.desc);
+            List<IndexedNews> indexedNewss = solrClient.QueryIndexedDocuments(IndexedNews.class, params.getQuery(), params.getQueryRows(), params.getQueryStart(), clause, params.getFilterQueries());
+            for (IndexedNews news : indexedNewss) {
+                news.setParsed(namedEntityRecognizer.prepForAnnotation(news.getBody()));
+            }
+            JsonResponse response = Tools.formJsonResponse(indexedNewss, params.getQueryTimeStamp());
+            logger.info(context.getRemoteAddr() + " -> " + "Returning stock news");
+            return ResponseEntity.ok().body(response);
+        } catch (Exception e) {
+            logger.error(context.getRemoteAddr() + " -> " + e);
+            Tools.getExceptions().add(e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Tools.formJsonResponse(null, params.getQueryTimeStamp()));
+        }
+    }
+
+    @RequestMapping(path="/newsNER", method= RequestMethod.GET, produces= MediaType.APPLICATION_JSON_VALUE)
+    public ResponseEntity<JsonResponse> getStockNewsNamedEntities(IndexedStocksQueryParams params) {
         SolrQuery.SortClause clause = new SolrQuery.SortClause("articleDate", SolrQuery.ORDER.desc);
         try {
-            List<IndexedNews> indexedNewss = solrClient.QueryIndexedDocuments(IndexedNews.class, "symbol:VKTX AND body:*", 100000, 0, clause);
-            List<String> allEntities = new ArrayList<>();
-            for (IndexedNews indexedNews : indexedNewss) {
-                String content = indexedNews.getBody();
-                List<String> entities = namedEntityRecognizer.detectNamedEntities(content, nerModel);
-                allEntities.addAll(entities);
+            List<IndexedNews> indexedNewss = solrClient.QueryIndexedDocuments(IndexedNews.class, params.getQuery(), params.getQueryRows(), params.getQueryStart(), clause, params.getFilterQueries());
+            Map<String, Map<String, Double>> allEntities = new HashMap<>();
+            if (params.getEntityTypes().length > 0) {
+                String entityType = params.getEntityTypes()[0];
+                for (IndexedNews indexedNews : indexedNewss) {
+                    String content = indexedNews.getBody();
+                    Map<String, Double> entities = namedEntityRecognizer.detectNamedEntities(content, entityType, 0.5);
+                    allEntities.put(indexedNews.getNERReportingForm(), entities);
+                }
             }
+
             return ResponseEntity.ok().body(Tools.formJsonResponse(allEntities));
         } catch (SolrServerException e) {
             logger.error(context.getRemoteAddr() + " -> " + e);

@@ -15,6 +15,7 @@ public class IndexedStocksQueryParams extends IndexedDocumentsQuery {
 	private String[] startDate;
 	private String[] endDate;
 	private String[] intervals;
+	private String[] entityTypes;
 	private int[] rows;
 	private int[] pageNum;
 	
@@ -104,5 +105,13 @@ public class IndexedStocksQueryParams extends IndexedDocumentsQuery {
 
 	public void setPageNum(int[] pageNum) {
 		this.pageNum = pageNum;
+	}
+
+	public String[] getEntityTypes() {
+		return entityTypes;
+	}
+
+	public void setEntityTypes(String[] entityTypes) {
+		this.entityTypes = entityTypes;
 	}
 }

@@ -46,6 +46,10 @@ public class IndexedNews extends IndexedObject  {
 	private String sentiment;
 	@Field
 	private String url;
+	@Field
+	private String annotated;
+
+	private String parsed;
 
 	private static ObjectMapper mapper = new ObjectMapper();
 
@@ -182,6 +186,10 @@ public class IndexedNews extends IndexedObject  {
 		return analysisStr;
 	}
 
+	public String getNERReportingForm() {
+		return id;
+	}
+
 	public String getId() {
 		return id;
 	}
@@ -238,5 +246,21 @@ public class IndexedNews extends IndexedObject  {
 
 	public void setSentiment(String sentiment) {
 		this.sentiment = sentiment;
+	}
+
+	public String getAnnotated() {
+		return annotated;
+	}
+
+	public void setAnnotated(String annotated) {
+		this.annotated = annotated;
+	}
+
+	public String getParsed() {
+		return parsed;
+	}
+
+	public void setParsed(String parsed) {
+		this.parsed = parsed;
 	}
 }
