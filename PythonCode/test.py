@@ -12,7 +12,7 @@ import numpy as np
 from tensorflow import keras
 import pickle
 
-symbol = 'AMRN'
+symbol = 'VTVT'
 interval = 'Daily'
 
 model_file_path = './models/' + symbol + '_' + interval + '/model.h5'

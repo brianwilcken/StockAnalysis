@@ -40,7 +40,7 @@ import solrapi.model.IndexedStock;
 
 public class SolrClient {
 
-    private final static String COLLECTION = "dependencies";
+    private final static String COLLECTION = "stocks";
 
     final static Logger logger = LogManager.getLogger(SolrClient.class);
 
@@ -319,7 +319,7 @@ public class SolrClient {
     }
 
     public static SolrQuery getNewsNERSymbolQuery(SolrQuery query) {
-        query.setQuery("annotated_SYM:*");
+        query.setQuery("annotated:*");
         query.setRows(1000000);
 
         return query;
@@ -338,7 +338,7 @@ public class SolrClient {
     }
 
     public void formatForNERSymbolTraining(IndexedNews news, FileOutputStream fos) throws IOException {
-        //fos.write(news..getBytes(Charset.forName("Cp1252")));
+        fos.write(news.GetNERModelTrainingForm().getBytes(Charset.forName("Cp1252")));
     }
 
     public void formatForNERModelTraining(SolrDocument doc, FileOutputStream fos) throws IOException {

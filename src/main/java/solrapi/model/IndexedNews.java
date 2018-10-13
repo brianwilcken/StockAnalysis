@@ -75,8 +75,14 @@ public class IndexedNews extends IndexedObject  {
 		news.url = article.location();
 
 		List<String> sourceTimeStamp = result.parent().parent().select(".slp").select("span").eachText();
+		int timeStampIndex = 2;
+		if (sourceTimeStamp.size() == 0) {
+			//Try other technique...
+			sourceTimeStamp = result.parent().parent().select(".st").select(".f").eachText();
+			timeStampIndex = 0;
+		}
 		if (sourceTimeStamp.size() > 0) {
-			String timestamp = sourceTimeStamp.get(2);
+			String timestamp = sourceTimeStamp.get(timeStampIndex);
 			news.articleDate = news.getFormattedDateTimeString(timestamp);
 		} else {
 			return null;
@@ -167,7 +173,7 @@ public class IndexedNews extends IndexedObject  {
 	}
 
 	public String GetNERModelTrainingForm() {
-		return body;
+		return annotated;
 	}
 
 	public String GetClusteringForm() {

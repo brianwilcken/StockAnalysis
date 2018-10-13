@@ -144,6 +144,23 @@ def get_VKTX_Daily_Model():
     early_stop_patience = 30
     return model, epochs, early_stop_patience
 
+def get_VTVT_Daily_Model():
+    model = keras.Sequential([
+        keras.layers.Dense(128, activation=tf.nn.relu, kernel_regularizer=keras.regularizers.l1(0.001)),
+        keras.layers.Dropout(0.05),
+        keras.layers.Dense(96, activation=tf.nn.relu),
+        keras.layers.Dropout(0.05),
+        keras.layers.Dense(32, activation=tf.nn.relu),
+        keras.layers.Dense(96, activation=tf.nn.relu),
+        keras.layers.Dense(1)
+      ])
+    
+    compile_model(model)
+    
+    epochs = 1000
+    early_stop_patience = 30
+    return model, epochs, early_stop_patience
+
 def get_AMRN_Daily_Model():
     model = keras.Sequential([
         keras.layers.Dense(96, activation=tf.nn.relu, kernel_regularizer=keras.regularizers.l1(0.001)),
@@ -184,6 +201,9 @@ modelFuncs = {
         'VKTX': {
             '1min': get_VKTX_1min_Model,
             'Daily': get_VKTX_Daily_Model
+        },
+        'VTVT': {
+            'Daily': get_VTVT_Daily_Model
         },
         'AMRN': {
             'Daily': get_AMRN_Daily_Model

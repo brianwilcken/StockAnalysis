@@ -16,11 +16,12 @@ public class IndexedStocksQueryParams extends IndexedDocumentsQuery {
 	private String[] endDate;
 	private String[] intervals;
 	private String[] entityTypes;
+	private String[] body;
 	private int[] rows;
 	private int[] pageNum;
 	
-	public String getQuery() {
-		return getTimeRangeQuery("timestamp", startDate, endDate, numDaysPrevious);
+	public String getQuery(String timeParam) {
+		return getTimeRangeQuery(timeParam, startDate, endDate, numDaysPrevious);
 	}
 
 	public String[] getFilterQueries() {
@@ -28,6 +29,7 @@ public class IndexedStocksQueryParams extends IndexedDocumentsQuery {
 
 		fqs.add(getFilterQuery("symbol", symbols));
 		fqs.add(getFilterQuery("interval", intervals));
+		fqs.add(getFilterQuery("body", body));
 		
 		return fqs.toArray(new String[fqs.size()]);
 	}
@@ -113,5 +115,13 @@ public class IndexedStocksQueryParams extends IndexedDocumentsQuery {
 
 	public void setEntityTypes(String[] entityTypes) {
 		this.entityTypes = entityTypes;
+	}
+
+	public String[] getBody() {
+		return body;
+	}
+
+	public void setBody(String[] body) {
+		this.body = body;
 	}
 }

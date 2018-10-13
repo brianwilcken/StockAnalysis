@@ -39,7 +39,7 @@ import tf_keras_models as mod
 from tensorflow import keras
 import pickle
 
-symbol = 'AMRN'
+symbol = 'VTVT'
 interval = 'Daily'
 
 model_file_path = './models/' + symbol + '_' + interval + '/model.h5'
@@ -50,10 +50,10 @@ os.makedirs(os.path.dirname(model_file_path), exist_ok=True)
 os.makedirs(os.path.dirname(norm_file_path), exist_ok=True)
 os.makedirs(os.path.dirname(perf_file_path), exist_ok=True)
 
-#com.init_stock_data_update(symbol, interval)
+com.init_stock_data_update(symbol, interval)
 stock_data = com.pull_stock_data(symbol, interval)
 
-#plt.plot_stock_activity(stock_data, symbol + ' ' + interval, flip=True)
+plt.plot_stock_activity(stock_data, symbol + ' ' + interval, flip=True)
 
 #The latest quote may represent incomplete data.  This will be used for closing price estimation.
 latest_quote = stock_data.head(1)

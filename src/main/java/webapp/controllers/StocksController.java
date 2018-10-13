@@ -18,16 +18,14 @@ import solrapi.SolrClient;
 import solrapi.model.IndexedNews;
 import solrapi.model.IndexedStocksQueryParams;
 import webapp.models.JsonResponse;
+import webapp.services.NERModelTrainingService;
 import webapp.services.RefreshStockDataService;
 import webscraper.WebClient;
 
 import javax.annotation.PostConstruct;
 import javax.servlet.http.HttpServletRequest;
 import javax.websocket.server.PathParam;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
 @CrossOrigin
 @RestController
@@ -44,6 +42,9 @@ public class StocksController {
 
     @Autowired
     private RefreshStockDataService refreshStockDataService;
+
+    @Autowired
+    private NERModelTrainingService nerModelTrainingService;
 
     @Autowired
     private HttpServletRequest context;
@@ -111,8 +112,11 @@ public class StocksController {
     public ResponseEntity<JsonResponse> getStockNews(IndexedStocksQueryParams params) {
         logger.info(context.getRemoteAddr() + " -> " + "In getStockNews method");
         try {
-            SolrQuery.SortClause clause = new SolrQuery.SortClause("articleDate", SolrQuery.ORDER.desc);
-            List<IndexedNews> indexedNewss = solrClient.QueryIndexedDocuments(IndexedNews.class, params.getQuery(), params.getQueryRows(), params.getQueryStart(), clause, params.getFilterQueries());
+            params.setBody(new String[] {"*"});
+            Random rand = new Random();
+            SolrQuery.SortClause clause = new SolrQuery.SortClause("random_" + Integer.toString(rand.nextInt()), "asc");
+            //SolrQuery.SortClause clause = new SolrQuery.SortClause("articleDate", SolrQuery.ORDER.desc);
+            List<IndexedNews> indexedNewss = solrClient.QueryIndexedDocuments(IndexedNews.class, params.getQuery("articleDate"), params.getQueryRows(), params.getQueryStart(), clause, params.getFilterQueries());
             for (IndexedNews news : indexedNewss) {
                 news.setParsed(namedEntityRecognizer.prepForAnnotation(news.getBody()));
             }
@@ -126,11 +130,70 @@ public class StocksController {
         }
     }
 
+    @RequestMapping(value="/news/{id}", method=RequestMethod.PUT, consumes=MediaType.MULTIPART_FORM_DATA_VALUE, produces=MediaType.APPLICATION_JSON_VALUE)
+    public ResponseEntity<JsonResponse> updateStockNews(@PathVariable(name="id") String id, @RequestPart("newsData") IndexedNews updIndexedNews) {
+        try {
+            List<IndexedNews> indexedNewss = solrClient.QueryIndexedDocuments(IndexedNews.class, "id:" + id, 1, 0, null);
+            if (!indexedNewss.isEmpty()) {
+                IndexedNews indexedNews = indexedNewss.get(0);
+                indexedNews.setAnnotated(updIndexedNews.getAnnotated());
+                solrClient.indexDocument(indexedNews);
+//                if (metadata.keySet().contains("annotated")) {
+//                    nerModelTrainingService.process(this, (String)doc.get("category"));
+//                }
+                return ResponseEntity.ok().body(Tools.formJsonResponse(null));
+            }
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Tools.formJsonResponse(null));
+        } catch (Exception e) {
+            logger.error(context.getRemoteAddr() + " -> " + e);
+            Tools.getExceptions().add(e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Tools.formJsonResponse(null));
+        }
+    }
+
+    @RequestMapping(value="/trainNER", method=RequestMethod.GET, produces=MediaType.APPLICATION_JSON_VALUE)
+    public ResponseEntity<JsonResponse> trainNERModel() {
+        logger.info(context.getRemoteAddr() + " -> " + "In trainNERModel method");
+        try {
+            nerModelTrainingService.process(this);
+            return ResponseEntity.ok().body(Tools.formJsonResponse(null));
+        } catch (Exception e) {
+            logger.error(context.getRemoteAddr() + " -> " + e);
+            Tools.getExceptions().add(e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Tools.formJsonResponse(null));
+        }
+    }
+
+    public void initiateNERModelTraining() {
+        namedEntityRecognizer.trainNERModel("SYM");
+    }
+
+    @RequestMapping(value="/annotate/{id}", method=RequestMethod.GET, produces=MediaType.APPLICATION_JSON_VALUE)
+    public ResponseEntity<JsonResponse> getAutoAnnotatedNews(@PathVariable(name="id") String id, int threshold) {
+        logger.info(context.getRemoteAddr() + " -> " + "In autoAnnotate method");
+        try {
+            List<IndexedNews> indexedNewss = solrClient.QueryIndexedDocuments(IndexedNews.class, "id:" + id, 1, 0, null);
+            if (!indexedNewss.isEmpty()) {
+                IndexedNews indexedNews = indexedNewss.get(0);
+
+                double dblThreshold = (double)threshold / (double)100;
+                String annotated = namedEntityRecognizer.autoAnnotate(indexedNews.getBody(), "SYM", dblThreshold);
+
+                return ResponseEntity.ok().body(Tools.formJsonResponse(annotated));
+            }
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Tools.formJsonResponse(null));
+        } catch (Exception e) {
+            logger.error(context.getRemoteAddr() + " -> " + e);
+            Tools.getExceptions().add(e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Tools.formJsonResponse(null));
+        }
+    }
+
     @RequestMapping(path="/newsNER", method= RequestMethod.GET, produces= MediaType.APPLICATION_JSON_VALUE)
     public ResponseEntity<JsonResponse> getStockNewsNamedEntities(IndexedStocksQueryParams params) {
         SolrQuery.SortClause clause = new SolrQuery.SortClause("articleDate", SolrQuery.ORDER.desc);
         try {
-            List<IndexedNews> indexedNewss = solrClient.QueryIndexedDocuments(IndexedNews.class, params.getQuery(), params.getQueryRows(), params.getQueryStart(), clause, params.getFilterQueries());
+            List<IndexedNews> indexedNewss = solrClient.QueryIndexedDocuments(IndexedNews.class, params.getQuery("articleDate"), params.getQueryRows(), params.getQueryStart(), clause, params.getFilterQueries());
             Map<String, Map<String, Double>> allEntities = new HashMap<>();
             if (params.getEntityTypes().length > 0) {
                 String entityType = params.getEntityTypes()[0];
