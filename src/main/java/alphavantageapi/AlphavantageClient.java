@@ -32,8 +32,7 @@ public class AlphavantageClient {
         client.solrClient = new SolrClient(client.solrUrl);
 
         try {
-
-            client.QueryStockData("NNDM", new StockPullOperation("TIME_SERIES_DAILY", "Daily"));
+            client.QueryStockData("MSFT", new StockPullOperation("60min"));
         } catch (SolrServerException e) {
             e.printStackTrace();
         }
@@ -57,7 +56,7 @@ public class AlphavantageClient {
         solrClient.indexDocuments(stocks);
         int totalStocks = stocks.size();
 
-        logger.info(totalStocks + " stocks indexed for symbol: " + symbol + ", time series: " + op.getFunction() + ", interval: " + op.getInterval());
+        logger.info(totalStocks + " stock ticks indexed for symbol: " + symbol + ", time series: " + op.getFunction() + ", interval: " + op.getInterval());
         return totalStocks;
     }
 }

@@ -146,12 +146,12 @@ def get_VKTX_Daily_Model():
 
 def get_VTVT_Daily_Model():
     model = keras.Sequential([
-        keras.layers.Dense(128, activation=tf.nn.relu, kernel_regularizer=keras.regularizers.l1(0.001)),
-        keras.layers.Dropout(0.05),
-        keras.layers.Dense(96, activation=tf.nn.relu),
-        keras.layers.Dropout(0.05),
-        keras.layers.Dense(32, activation=tf.nn.relu),
-        keras.layers.Dense(96, activation=tf.nn.relu),
+        keras.layers.Dense(4, activation=tf.nn.sigmoid, kernel_regularizer=keras.regularizers.l1(0.001)),
+#        keras.layers.Dropout(0.05),
+#        keras.layers.Dense(96, activation=tf.nn.relu),
+#        keras.layers.Dropout(0.05),
+#        keras.layers.Dense(32, activation=tf.nn.relu),
+#        keras.layers.Dense(96, activation=tf.nn.relu),
         keras.layers.Dense(1)
       ])
     

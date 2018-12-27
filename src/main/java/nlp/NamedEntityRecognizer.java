@@ -1,15 +1,17 @@
 package nlp;
 
 import common.Tools;
+import edu.stanford.nlp.ling.CoreAnnotations;
+import edu.stanford.nlp.ling.CoreLabel;
+import edu.stanford.nlp.util.CoreMap;
 import opennlp.tools.namefind.*;
 import opennlp.tools.sentdetect.SentenceModel;
-import opennlp.tools.tokenize.TokenizerModel;
+import opennlp.tools.util.InsufficientTrainingDataException;
 import opennlp.tools.util.ObjectStream;
 import opennlp.tools.util.Span;
 import opennlp.tools.util.TrainingParameters;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.apache.solr.client.solrj.SolrQuery;
 import org.apache.solr.client.solrj.SolrServerException;
 import org.apache.solr.common.SolrDocument;
 import org.apache.solr.common.SolrDocumentList;
@@ -18,7 +20,8 @@ import solrapi.SolrClient;
 
 import java.io.*;
 import java.util.*;
-import java.util.function.Function;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 public class NamedEntityRecognizer {
@@ -29,131 +32,148 @@ public class NamedEntityRecognizer {
         SolrClient client = new SolrClient("http://localhost:8983/solr");
         NamedEntityRecognizer namedEntityRecognizer = new NamedEntityRecognizer(client);
 
-        autoAnnotateAllForSymbol(client, namedEntityRecognizer, "AMRN", "SYM");
+        //namedEntityRecognizer.trainNERModel();
 
-//        try {
-//            namedEntityRecognizer.trainNERModel("Electricity");
-//        } catch (InsufficientTrainingDataException e) {
-//            e.printStackTrace();
-//        }
+        autoAnnotateAllForSymbol(client, namedEntityRecognizer, "AMRN");
     }
 
-    private static void autoAnnotateAllForSymbol(SolrClient client, NamedEntityRecognizer namedEntityRecognizer, String symbol, String entityType) {
+    private static void autoAnnotateAllForSymbol(SolrClient client, NamedEntityRecognizer namedEntityRecognizer, String symbol) {
         try {
             SolrDocumentList docs = client.QuerySolrDocuments("symbol:" + symbol + " AND body:*", 1000, 0, null);
             for (SolrDocument doc : docs) {
-                String document = (String)doc.get("body");
-                String annotated = namedEntityRecognizer.autoAnnotate(document, entityType, 0.5);
-                String annotatedKey = "annotated_" + entityType;
-                if (doc.containsKey(annotatedKey)) {
-                    doc.replace(annotatedKey, annotated);
+                String document = namedEntityRecognizer.deepCleanText((String)doc.get("body"));
+                List<NamedEntity> entities = namedEntityRecognizer.detectNamedEntities(document, 0.5);
+                String annotated = namedEntityRecognizer.autoAnnotate(document, entities);
+                if (doc.containsKey("annotated")) {
+                    doc.replace("annotated", annotated);
                 } else {
-                    doc.addField(annotatedKey, annotated);
+                    doc.addField("annotated", annotated);
                 }
                 //FileUtils.writeStringToFile(new File("data/annotated.txt"), annotated, Charset.forName("Cp1252").displayName());
 
-                client.indexDocument(doc);
+                //client.indexDocument(doc);
             }
         } catch (SolrServerException e) {
             e.printStackTrace();
         }
     }
 
-    public String prepForAnnotation(String document) {
-        String[] sentences = detectSentences(document);
-        document = String.join("\r\n", sentences);
-
-        return document;
-    }
-
-    public String autoAnnotate(String document, String entityType, double threshold) {
-        String[] sentences = detectSentences(document);
-        document = String.join("\r\n", sentences);
-        Map<String, Double> entities = detectNamedEntities(sentences, entityType, threshold);
+    public String autoAnnotate(String document, List<NamedEntity> entities) {
+        List<CoreMap> sentencesList = NLPTools.detectSentencesStanford(document);
+        String[] sentences = sentencesList.stream().map(p -> p.toString()).toArray(String[]::new);
         if (!entities.isEmpty()) {
-            entities = entities.entrySet().stream().sorted(Collections.reverseOrder(Map.Entry.comparingByKey()))
-                    .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue, (e1, e2) -> e1, LinkedHashMap::new));
-            for (String tag : entities.keySet()) {
-                document = document.replace(tag, " <START:" + entityType + "> " + tag + " <END> ");
+            Map<Integer, List<NamedEntity>> lineEntities = entities.stream()
+                    .collect(Collectors.groupingBy(p -> p.getLine()));
+
+            for (int s = 0; s < sentences.length; s++) {
+                String sentence = sentences[s];
+                if (lineEntities.containsKey(s)) {
+                    List<CoreLabel> tokens = NLPTools.detectTokensStanford(sentence);
+                    String[] tokensArr = tokens.stream().map(p -> p.toString()).toArray(String[]::new);
+                    for (NamedEntity namedEntity : lineEntities.get(s)) {
+                        namedEntity.autoAnnotate(tokensArr);
+                    }
+                    sentence = String.join(" ", tokensArr);
+                    sentences[s] = sentence;
+                }
             }
+            document = String.join("\r\n", sentences);
             document = document.replaceAll(" {2,}", " "); //ensure there are no multi-spaces that could disrupt model training
+            //remove random spaces that are an artifact of the tokenization process
+            document = document.replaceAll("(\\b (?=,)|(?<=\\.) (?=,)|\\b (?=\\.)|(?<=,) (?=\\.)|\\b (?='))", "");
+        } else {
+            document = String.join("\r\n", sentences);
         }
         return document;
     }
 
-    private static final Map<String, String> models;
-    static
-    {
-        models = new HashMap<>();
-        models.put("SYM", Tools.getProperty("nlp.symbolNerModel"));
-    }
+    public List<NamedEntity> extractNamedEntities(String annotated) {
+        Pattern docPattern = Pattern.compile(" ?<START:.+?<END>");
+        Pattern entityTypePattern = Pattern.compile("(?<=:).+?(?=>)");
 
-    private static final Map<String, String> trainingFiles;
-    static
-    {
-        trainingFiles = new HashMap<>();
-        trainingFiles.put("SYM", Tools.getProperty("nlp.symbolNerTrainingFile"));
-    }
+        List<CoreMap> sentencesList = NLPTools.detectSentencesStanford(annotated);
+        String[] sentences = sentencesList.stream().map(p -> p.toString()).toArray(String[]::new);
 
-    private static final Map<String, Function<SolrQuery, SolrQuery>> dataGetters;
-    static
-    {
-        dataGetters = new HashMap<>();
-        dataGetters.put("SYM", SolrClient::getNewsNERSymbolQuery);
+        List<NamedEntity> entities = new ArrayList<>();
+        for (int i = 0; i < sentences.length; i++) {
+            String sentence = sentences[i];
+            List<CoreLabel> tokens = NLPTools.detectTokensStanford(sentence);
+            Matcher sentMatcher = docPattern.matcher(sentence);
+            int tagTokenNum = 0;
+            while(sentMatcher.find()) {
+                int annotatedStart = sentMatcher.start();
+                int annotatedEnd = sentMatcher.end();
+                List<CoreLabel> spanTokens = tokens.stream()
+                        .filter(p -> (annotatedStart == 0 || p.beginPosition() > annotatedStart) && p.endPosition() <= annotatedEnd)
+                        .collect(Collectors.toList());
+                CoreLabel startToken = spanTokens.get(0);
+                Matcher typeMatcher = entityTypePattern.matcher(startToken.value());
+                String type = null;
+                if (typeMatcher.find()) {
+                    type = startToken.value().substring(typeMatcher.start(), typeMatcher.end());
+                }
+                List<CoreLabel> entityTokens = spanTokens.subList(1, spanTokens.size() - 1); // extract just the tokens that comprise the entity
+
+                String[] entityTokensArr = entityTokens.stream().map(p -> p.toString()).toArray(String[]::new);
+                String entity = String.join(" ", entityTokensArr);
+                int tokenIndexDecrement = 1 + 2 * tagTokenNum;
+                int spanStart = entityTokens.get(0).get(CoreAnnotations.TokenEndAnnotation.class).intValue() - tokenIndexDecrement - 1; //subtract two token indices for every entity to accomodate for start/end tags
+                int spanEnd = entityTokens.get(entityTokens.size() - 1).get(CoreAnnotations.TokenEndAnnotation.class).intValue() - tokenIndexDecrement;
+                Span span = new Span(spanStart, spanEnd, type);
+                NamedEntity namedEntity = new NamedEntity(entity, span, i);
+                entities.add(namedEntity);
+                tagTokenNum++;
+            }
+        }
+
+        return entities;
     }
 
     private SentenceModel sentModel;
-    private TokenizerModel tokenizerModel;
     private SolrClient client;
 
     public NamedEntityRecognizer(SolrClient client) {
         sentModel = NLPTools.getModel(SentenceModel.class, new ClassPathResource(Tools.getProperty("nlp.sentenceDetectorModel")));
-        tokenizerModel = NLPTools.getModel(TokenizerModel.class, new ClassPathResource(Tools.getProperty("nlp.tokenizerModel")));
         this.client = client;
     }
 
-    public Map<String, Double> detectNamedEntities(String document, String entityType, double threshold) {
-        String[] sentences = detectSentences(document);
-        return detectNamedEntities(sentences, entityType, threshold);
+    public List<NamedEntity> detectNamedEntities(String document, double threshold) {
+        List<CoreMap> sentences = NLPTools.detectSentencesStanford(document);
+        return detectNamedEntities(sentences, threshold);
     }
 
-    public Map<String, Double> detectNamedEntities(String[] sentences, String entityType, double threshold, int... numTries) {
-        Map<String, Double> namedEntities = new HashMap<>();
+    public List<NamedEntity> detectNamedEntities(List<CoreMap> sentences, double threshold, int... numTries) {
+        List<NamedEntity> namedEntities = new ArrayList<>();
         try {
-            TokenNameFinderModel model = NLPTools.getModel(TokenNameFinderModel.class, models.get(entityType));
+            String modelFile = Tools.getProperty("nlp.stocksNerModel");
+            TokenNameFinderModel model = NLPTools.getModel(TokenNameFinderModel.class, modelFile);
             NameFinderME nameFinder = new NameFinderME(model);
 
-            List<String> tokenized = new ArrayList<>();
-            for (String sentence : sentences) {
-                String[] tokens = NLPTools.detectTokens(tokenizerModel, sentence);
-                tokenized.add(String.join(" ", tokens));
-                Span[] nameSpans = nameFinder.find(tokens);
+            for (int s = 0; s < sentences.size(); s++) {
+                String sentence = sentences.get(s).toString();
+                List<CoreLabel> tokens = NLPTools.detectTokensStanford(sentence);
+                String[] tokensArr = tokens.stream().map(p -> p.toString()).toArray(String[]::new);
+                Span[] nameSpans = nameFinder.find(tokensArr);
                 double[] probs = nameFinder.probs(nameSpans);
                 for (int i = 0; i < nameSpans.length; i++) {
                     double prob = probs[i];
                     Span span = nameSpans[i];
                     int start = span.getStart();
                     int end = span.getEnd();
-                    String[] entityParts = Arrays.copyOfRange(tokens, start, end);
+                    String[] entityParts = Arrays.copyOfRange(tokensArr, start, end);
                     String entity = String.join(" ", entityParts);
-                    if (!namedEntities.containsKey(entity) && prob > threshold) {
-                        namedEntities.put(entity, prob);
+                    if (prob > threshold) {
+                        NamedEntity namedEntity = new NamedEntity(entity, span, s);
+                        namedEntities.add(namedEntity);
                     }
                 }
             }
 
-//        try {
-//            FileUtils.writeLines(new File("data/sentences.txt"), Charset.forName("Cp1252").displayName(), Arrays.asList(sentences));
-//            FileUtils.writeLines(new File("data/tokenized.txt"), Charset.forName("Cp1252").displayName(), tokenized);
-//        } catch (IOException e) {
-//            e.printStackTrace();
-//        }
-
             return namedEntities;
         } catch (IOException e) {
             if(numTries.length == 0) {
-                trainNERModel(entityType); //model may not yet exist, but maybe there is data to train it...
-                return detectNamedEntities(sentences, entityType, threshold, 1);
+                trainNERModel(); //model may not yet exist, but maybe there is data to train it...
+                return detectNamedEntities(sentences, threshold, 1);
             } else {
                 //no model training data available...
                 logger.error(e.getMessage(), e);
@@ -162,28 +182,30 @@ public class NamedEntityRecognizer {
         }
     }
 
-    public String[] detectSentences(String document) {
-        document = document.replace("\r\n", "");
-        //document = document.replace("(", " ");
-        //document = document.replace(")", " ");
-        document = document.replaceAll("\\P{Print}", " ");
-        //document = document.replaceAll("(\\w+\\W+)?\\d+(\\w+\\W+)?", ""); //removes all the numbers
-        //document = document.replaceAll("[$-,/:-?{-~!\"^_`\\[\\]+]", ""); //removes most special characters
-        document = document.replaceAll("[%-'*/;-?{-~!\"^_`\\[\\]+]", "");
-        //document = document.replaceAll("-", " ");
-        document = document.replaceAll(" +\\.", ".");
-        document = document.replaceAll("\\.{2,}", ". ");
-        document = document.replaceAll(" {2,}", " ");
-        String[] sentences = NLPTools.detectSentences(sentModel, document);
+    public String deepCleanText(String document) {
+        String document1 = document.replace("\r\n", " ");
+        String document2 = document1.replace("(", " ");
+        String document3 = document2.replace(")", " ");
+        String document4 = document3.replaceAll("\\P{Print}", " ");
+        //String document4a = Tools.removeAllNumbers(document4);
+        //document = Tools.removeSpecialCharacters(document);
+        String document5 = document4.replaceAll("[\\\\%-*/:-?{-~!\"^_`\\[\\]+]", " ");
+        String document6= document5.replaceAll(" +\\.", ".");
+        String document7 = document6.replaceAll("\\.{2,}", ". ");
+        String document8 = document7.replaceAll(" {2,}", " ");
+        String document9 = NLPTools.fixDocumentWordBreaks(document8);
+        String document10 = document9.replaceAll("(?<=[a-z])-\\s(?=[a-z])", "");
+        String document11 = document10.replaceAll("\\b\\ss\\s\\b", "'s ");
 
-        return sentences;
+        return document11;
     }
 
-    public void trainNERModel(String entityType) {
+    public void trainNERModel() {
         try {
-            String trainingFile = trainingFiles.get(entityType);
+            String trainingFile = Tools.getProperty("nlp.stocksNerTrainingFile");
+            String modelFile = Tools.getProperty("nlp.stocksNerModel");
 
-            client.writeTrainingDataToFile(trainingFile, dataGetters.get(entityType), client::formatForNERSymbolTraining,
+            client.writeTrainingDataToFile(trainingFile, client::getStocksNewsNERQuery, client::formatForStocksNewsNERModelTraining,
                     new SolrClient.ClusteringThrottle("", 0));
             ObjectStream<String> lineStream = NLPTools.getLineStreamFromMarkableFile(trainingFile);
 
@@ -198,7 +220,7 @@ public class NamedEntityRecognizer {
                         TokenNameFinderFactory.create(null, null, Collections.emptyMap(), new BioCodec()));
             }
 
-            try (OutputStream modelOut = new BufferedOutputStream(new FileOutputStream(models.get(entityType)))) {
+            try (OutputStream modelOut = new BufferedOutputStream(new FileOutputStream(modelFile))) {
                 model.serialize(modelOut);
             }
 

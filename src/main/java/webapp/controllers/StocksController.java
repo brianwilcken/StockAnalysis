@@ -3,11 +3,13 @@ package webapp.controllers;
 import alphavantageapi.AlphavantageClient;
 import alphavantageapi.model.StockPullOperation;
 import common.Tools;
+import nlp.NamedEntity;
 import nlp.NamedEntityRecognizer;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.solr.client.solrj.SolrQuery;
 import org.apache.solr.client.solrj.SolrServerException;
+import org.apache.solr.common.util.SimpleOrderedMap;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.http.HttpStatus;
@@ -108,17 +110,47 @@ public class StocksController {
         }
     }
 
+    @RequestMapping(path="/symbols", method= RequestMethod.GET, produces= MediaType.APPLICATION_JSON_VALUE)
+    public ResponseEntity<JsonResponse> getSymbols() {
+        logger.info(context.getRemoteAddr() + " -> " + "In getSymbols method");
+        try {
+            String[] symbols = getAvailableSymbols();
+            return ResponseEntity.ok().body(Tools.formJsonResponse(symbols));
+        } catch (Exception e) {
+            logger.error(context.getRemoteAddr() + " -> " + e);
+            Tools.getExceptions().add(e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Tools.formJsonResponse(null));
+        }
+    }
+
+    private String[] getAvailableSymbols() throws SolrServerException {
+        List<String> availableSymbols = new ArrayList<String>();
+        SimpleOrderedMap<?> facets = solrClient.QueryFacets("body:*","{symbols:{type:terms,field:symbol,limit:10000}}");
+        SimpleOrderedMap<?> symbols = (SimpleOrderedMap<?>) facets.get("symbols");
+        List<?> buckets = (ArrayList<?>) symbols.get("buckets");
+        for (int i = 0; i < buckets.size(); i++) {
+            SimpleOrderedMap<?> nvpair = (SimpleOrderedMap<?>) buckets.get(i);
+            String symbol = (String) nvpair.getVal(0);
+            availableSymbols.add(symbol);
+        }
+
+        String[] symArr = availableSymbols.toArray(new String[availableSymbols.size()]);
+        Arrays.sort(symArr);
+
+        return symArr;
+    }
+
     @RequestMapping(path="/news", method=RequestMethod.GET, produces=MediaType.APPLICATION_JSON_VALUE)
     public ResponseEntity<JsonResponse> getStockNews(IndexedStocksQueryParams params) {
         logger.info(context.getRemoteAddr() + " -> " + "In getStockNews method");
         try {
             params.setBody(new String[] {"*"});
             Random rand = new Random();
-            SolrQuery.SortClause clause = new SolrQuery.SortClause("random_" + Integer.toString(rand.nextInt()), "asc");
+            SolrQuery.SortClause clause = new SolrQuery.SortClause("articleDate", "desc");
             //SolrQuery.SortClause clause = new SolrQuery.SortClause("articleDate", SolrQuery.ORDER.desc);
             List<IndexedNews> indexedNewss = solrClient.QueryIndexedDocuments(IndexedNews.class, params.getQuery("articleDate"), params.getQueryRows(), params.getQueryStart(), clause, params.getFilterQueries());
             for (IndexedNews news : indexedNewss) {
-                news.setParsed(namedEntityRecognizer.prepForAnnotation(news.getBody()));
+                news.setParsed(namedEntityRecognizer.deepCleanText(news.getBody()));
             }
             JsonResponse response = Tools.formJsonResponse(indexedNewss, params.getQueryTimeStamp());
             logger.info(context.getRemoteAddr() + " -> " + "Returning stock news");
@@ -165,7 +197,7 @@ public class StocksController {
     }
 
     public void initiateNERModelTraining() {
-        namedEntityRecognizer.trainNERModel("SYM");
+        namedEntityRecognizer.trainNERModel();
     }
 
     @RequestMapping(value="/annotate/{id}", method=RequestMethod.GET, produces=MediaType.APPLICATION_JSON_VALUE)
@@ -177,7 +209,9 @@ public class StocksController {
                 IndexedNews indexedNews = indexedNewss.get(0);
 
                 double dblThreshold = (double)threshold / (double)100;
-                String annotated = namedEntityRecognizer.autoAnnotate(indexedNews.getBody(), "SYM", dblThreshold);
+                String parsed = namedEntityRecognizer.deepCleanText(indexedNews.getBody());
+                List<NamedEntity> entities = namedEntityRecognizer.detectNamedEntities(parsed, dblThreshold);
+                String annotated = namedEntityRecognizer.autoAnnotate(parsed, entities);
 
                 return ResponseEntity.ok().body(Tools.formJsonResponse(annotated));
             }
@@ -194,12 +228,12 @@ public class StocksController {
         SolrQuery.SortClause clause = new SolrQuery.SortClause("articleDate", SolrQuery.ORDER.desc);
         try {
             List<IndexedNews> indexedNewss = solrClient.QueryIndexedDocuments(IndexedNews.class, params.getQuery("articleDate"), params.getQueryRows(), params.getQueryStart(), clause, params.getFilterQueries());
-            Map<String, Map<String, Double>> allEntities = new HashMap<>();
+            Map<String, List<NamedEntity>> allEntities = new HashMap<>();
             if (params.getEntityTypes().length > 0) {
                 String entityType = params.getEntityTypes()[0];
                 for (IndexedNews indexedNews : indexedNewss) {
-                    String content = indexedNews.getBody();
-                    Map<String, Double> entities = namedEntityRecognizer.detectNamedEntities(content, entityType, 0.5);
+                    String parsed = namedEntityRecognizer.deepCleanText(indexedNews.getBody());
+                    List<NamedEntity> entities = namedEntityRecognizer.detectNamedEntities(parsed, 0.5);
                     allEntities.put(indexedNews.getNERReportingForm(), entities);
                 }
             }

@@ -53,7 +53,7 @@ public class SolrClient {
 
     public static void main(String[] args) {
         SolrClient solrClient = new SolrClient("http://localhost:8983/solr");
-        //solrClient.writeTrainingDataToFile("data/news-clustering.csv", solrClient::getNewsClusteringQuery, solrClient::formatForClustering, new ClusteringThrottle("", 0));
+        //solrClient.writeTrainingDataToFile("data/news-clustering.csv", solrClient::getStocksNewsClusteringQuery, solrClient::formatForClustering, new ClusteringThrottle("", 0));
 
         SortClause sort = new SortClause("random_*", SolrQuery.ORDER.asc);
         try {
@@ -311,14 +311,14 @@ public class SolrClient {
         return typedDocs;
     }
 
-    public SolrQuery getNewsClusteringQuery(SolrQuery query) {
+    public SolrQuery getStocksNewsClusteringQuery(SolrQuery query) {
         query.setQuery("body:*");
         query.setRows(10000000);
 
         return query;
     }
 
-    public static SolrQuery getNewsNERSymbolQuery(SolrQuery query) {
+    public SolrQuery getStocksNewsNERQuery(SolrQuery query) {
         query.setQuery("annotated:*");
         query.setRows(1000000);
 
@@ -337,7 +337,7 @@ public class SolrClient {
         fos.write(news.GetAnalysisForm().getBytes(Charset.forName("Cp1252")));
     }
 
-    public void formatForNERSymbolTraining(IndexedNews news, FileOutputStream fos) throws IOException {
+    public void formatForStocksNewsNERModelTraining(IndexedNews news, FileOutputStream fos) throws IOException {
         fos.write(news.GetNERModelTrainingForm().getBytes(Charset.forName("Cp1252")));
     }
 

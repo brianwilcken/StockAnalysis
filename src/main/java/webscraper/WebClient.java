@@ -5,7 +5,6 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.solr.client.solrj.SolrServerException;
 import solrapi.model.IndexedNews;
-import geoparsing.LocationResolver;
 
 import common.Tools;
 import de.l3s.boilerpipe.extractors.ArticleExtractor;
@@ -42,7 +41,6 @@ public class WebClient {
     private final NamedEntityRecognizer ner;
     private final PorterStemmer stemmer;
     private final SentenceModel sentModel;
-    private final LocationResolver locationResolver;
     private final SolrClient solrClient;
     //private final EventCategorizer categorizer;
 
@@ -68,7 +66,6 @@ public class WebClient {
         articleExtractor = new ArticleExtractor();
         stemmer = new PorterStemmer();
         sentModel = NLPTools.getModel(SentenceModel.class, new ClassPathResource(Tools.getProperty("nlp.sentenceDetectorModel")));
-        locationResolver = new LocationResolver();
         solrClient = new SolrClient(Tools.getProperty("solr.url"));
         ner = new NamedEntityRecognizer(solrClient);
         //categorizer = new EventCategorizer(solrClient);

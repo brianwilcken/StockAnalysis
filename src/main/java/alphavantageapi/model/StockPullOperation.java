@@ -13,6 +13,10 @@ public class StockPullOperation {
         Map<String,String> map = new HashMap<>();
         map.put("Daily", "TIME_SERIES_DAILY");
         map.put("1min", "TIME_SERIES_INTRADAY");
+        map.put("5min", "TIME_SERIES_INTRADAY");
+        map.put("15min", "TIME_SERIES_INTRADAY");
+        map.put("30min", "TIME_SERIES_INTRADAY");
+        map.put("60min", "TIME_SERIES_INTRADAY");
         return map;
     }
 
